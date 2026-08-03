@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "777586757700",
+    "project_id": "barakah-40-a5dac",
+    "storage_bucket": "barakah-40-a5dac.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:777586757700:android:4558ff671c6186d9102c11",
+        "android_client_info": {
+          "package_name": "com.nosa.barakah40"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA0coHvV6uXulRF7I9LEPWjN5yNJTS4KWA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

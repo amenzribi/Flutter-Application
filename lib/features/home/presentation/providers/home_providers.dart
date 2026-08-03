@@ -1,0 +1,86 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
+
+import 'package:barakah40_flutter/features/auth/domain/entities/app_user.dart';
+import 'package:barakah40_flutter/features/auth/presentation/providers/auth_providers.dart';
+import 'package:barakah40_flutter/features/home/data/repositories/home_repository_impl.dart';
+import 'package:barakah40_flutter/features/home/domain/entities/home_progress.dart';
+import 'package:barakah40_flutter/features/home/domain/repositories/home_repository.dart';
+import 'package:barakah40_flutter/features/home/domain/services/hijri_date.dart';
+import 'package:barakah40_flutter/features/home/domain/services/home_greeting.dart';
+
+final homeRepositoryProvider = Provider<HomeRepository>((ref) {
+  return HomeRepositoryImpl();
+});
+
+/// Ticks about once a minute for live clock / greeting updates.
+final homeClockProvider = StreamProvider<DateTime>((ref) async* {
+  yield DateTime.now();
+  yield* Stream<DateTime>.periodic(
+    const Duration(seconds: 30),
+    (_) => DateTime.now(),
+  );
+});
+
+final homeProgressProvider = StreamProvider<HomeProgress>((ref) {
+  return ref.watch(homeRepositoryProvider).watchProgress();
+});
+
+class HomeDashboardViewModel {
+  const HomeDashboardViewModel({
+    required this.now,
+    required this.user,
+    required this.progress,
+    required this.greeting,
+    required this.timeLabel,
+    required this.gregorianLabel,
+    required this.hijriLabel,
+  });
+
+  final DateTime now;
+  final AppUser? user;
+  final HomeProgress progress;
+  final String greeting;
+  final String timeLabel;
+  final String gregorianLabel;
+  final String hijriLabel;
+}
+
+final homeDashboardProvider = Provider<AsyncValue<HomeDashboardViewModel>>((
+  ref,
+) {
+  final clock = ref.watch(homeClockProvider);
+  final progress = ref.watch(homeProgressProvider);
+  final user = ref.watch(currentUserProvider);
+
+  return clock.when(
+    loading: () => const AsyncLoading(),
+    error: AsyncError.new,
+    data: (now) {
+      return progress.when(
+        loading: () => const AsyncLoading(),
+        error: AsyncError.new,
+        data: (homeProgress) {
+          final timeLabel = DateFormat('h:mm a', 'en').format(now);
+          final gregorianLabel = DateFormat('EEEE d MMMM y', 'ar').format(now);
+          final hijriLabel = HijriDate.fromGregorian(now).formatAr();
+          final greeting = HomeGreeting.forDateTime(
+            now,
+            displayName: user?.displayName,
+          );
+          return AsyncData(
+            HomeDashboardViewModel(
+              now: now,
+              user: user,
+              progress: homeProgress,
+              greeting: greeting,
+              timeLabel: timeLabel,
+              gregorianLabel: gregorianLabel,
+              hijriLabel: hijriLabel,
+            ),
+          );
+        },
+      );
+    },
+  );
+});

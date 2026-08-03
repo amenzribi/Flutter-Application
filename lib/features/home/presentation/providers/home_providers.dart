@@ -8,9 +8,11 @@ import 'package:barakah40_flutter/features/home/domain/entities/home_progress.da
 import 'package:barakah40_flutter/features/home/domain/repositories/home_repository.dart';
 import 'package:barakah40_flutter/features/home/domain/services/hijri_date.dart';
 import 'package:barakah40_flutter/features/home/domain/services/home_greeting.dart';
+import 'package:barakah40_flutter/features/user_state/presentation/providers/user_state_providers.dart';
 
 final homeRepositoryProvider = Provider<HomeRepository>((ref) {
-  return HomeRepositoryImpl();
+  final controller = ref.watch(userStateControllerProvider.notifier);
+  return HomeRepositoryImpl(controller);
 });
 
 /// Ticks about once a minute for live clock / greeting updates.

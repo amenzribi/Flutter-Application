@@ -6,17 +6,31 @@ import 'package:barakah40_flutter/app/theme/barakah_colors.dart';
 import 'package:barakah40_flutter/shared/widgets/premium_card.dart';
 
 class HomeQuickActions extends StatelessWidget {
-  const HomeQuickActions({super.key, required this.onUnavailable});
+  const HomeQuickActions({
+    super.key,
+    required this.onUnavailable,
+    this.onQuran,
+    this.onPrayer,
+  });
 
   /// Called when a not-yet-migrated feature is tapped.
   final void Function(String featureLabel) onUnavailable;
 
+  /// Called when the Quran quick action is tapped. When `null`, the Quran
+  /// action falls back to [onUnavailable] like the other not-yet-migrated
+  /// features.
+  final VoidCallback? onQuran;
+
+  /// Called when the Prayer quick action is tapped. When `null`, falls back
+  /// to [onUnavailable] like the other not-yet-migrated features.
+  final VoidCallback? onPrayer;
+
   @override
   Widget build(BuildContext context) {
     final actions = <_ActionSpec>[
-      _ActionSpec('القرآن', Icons.menu_book_rounded),
+      _ActionSpec('القرآن', Icons.menu_book_rounded, onTap: onQuran),
       _ActionSpec('الأذكار', Icons.auto_awesome_outlined),
-      _ActionSpec('الصلاة', Icons.mosque_outlined),
+      _ActionSpec('الصلاة', Icons.mosque_outlined, onTap: onPrayer),
       _ActionSpec('الحديقة', Icons.park_outlined),
     ];
 
@@ -39,7 +53,9 @@ class HomeQuickActions extends StatelessWidget {
                   child: _QuickActionButton(
                     label: actions[i].label,
                     icon: actions[i].icon,
-                    onTap: () => onUnavailable(actions[i].label),
+                    onTap:
+                        actions[i].onTap ??
+                        () => onUnavailable(actions[i].label),
                   ),
                 ),
               ],
@@ -52,9 +68,10 @@ class HomeQuickActions extends StatelessWidget {
 }
 
 class _ActionSpec {
-  const _ActionSpec(this.label, this.icon);
+  const _ActionSpec(this.label, this.icon, {this.onTap});
   final String label;
   final IconData icon;
+  final VoidCallback? onTap;
 }
 
 class _QuickActionButton extends StatefulWidget {

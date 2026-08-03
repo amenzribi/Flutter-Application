@@ -4,6 +4,10 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>يُستخدم موقعك مرة واحدة لحساب مواقيت الصلاة عبر خدمة موثوقة (Aladhan)، دون تتبّع مستمر.</string>
+	<key>NSLocationUsageDescription</key>
+	<string>يُستخدم موقعك مرة واحدة لحساب مواقيت الصلاة عبر خدمة موثوقة (Aladhan)، دون تتبّع مستمر.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

@@ -11,6 +11,10 @@ import 'package:barakah40_flutter/features/auth/presentation/screens/register_sc
 import 'package:barakah40_flutter/features/auth/presentation/screens/splash_screen.dart';
 import 'package:barakah40_flutter/features/auth/presentation/screens/welcome_screen.dart';
 import 'package:barakah40_flutter/features/home/presentation/screens/home_dashboard_screen.dart';
+import 'package:barakah40_flutter/features/prayer/presentation/screens/prayer_times_screen.dart';
+import 'package:barakah40_flutter/features/quran/presentation/screens/challenge_overview_screen.dart';
+import 'package:barakah40_flutter/features/quran/presentation/screens/quran_reader_screen.dart';
+import 'package:barakah40_flutter/features/quran/presentation/screens/reciter_selection_screen.dart';
 
 /// Listenable that notifies GoRouter when auth state changes.
 class GoRouterAuthRefresh extends ChangeNotifier {
@@ -114,6 +118,29 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.home,
         name: AppRoutes.homeName,
         builder: (context, state) => const HomeDashboardScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.challenge,
+        name: AppRoutes.challengeName,
+        builder: (context, state) => const ChallengeOverviewScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.quran,
+        name: AppRoutes.quranName,
+        builder: (context, state) {
+          final continueReading = state.uri.queryParameters['continue'] == '1';
+          return QuranReaderScreen(continueReading: continueReading);
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.quranReciter,
+        name: AppRoutes.quranReciterName,
+        builder: (context, state) => const ReciterSelectionScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.prayer,
+        name: AppRoutes.prayerName,
+        builder: (context, state) => const PrayerTimesScreen(),
       ),
     ],
   );

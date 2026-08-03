@@ -2,25 +2,33 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:barakah40_flutter/app/app.dart';
 import 'package:barakah40_flutter/core/logging/app_logger.dart';
+import 'package:barakah40_flutter/features/user_state/presentation/providers/user_state_providers.dart';
 import 'package:barakah40_flutter/firebase_options.dart';
 
-/// Boots Flutter bindings, Firebase, then the root app.
+/// Boots Flutter bindings, SharedPreferences, Firebase, then the root app.
 ///
 /// On Firebase init failure, shows a friendly Arabic error screen instead of
 /// crashing with a raw exception.
 Future<void> bootstrap() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('ar');
+  final prefs = await SharedPreferences.getInstance();
 
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
     AppLogger.info('Firebase initialized');
-    runApp(const ProviderScope(child: BarakahApp()));
+    runApp(
+      ProviderScope(
+        overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
+        child: const BarakahApp(),
+      ),
+    );
   } catch (error, stackTrace) {
     AppLogger.error('Firebase initialization failed', error, stackTrace);
     runApp(const _BootstrapFailureApp());

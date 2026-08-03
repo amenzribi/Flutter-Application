@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:barakah40_flutter/app/app.dart';
 import 'package:barakah40_flutter/app/theme/app_theme.dart';
@@ -11,10 +12,12 @@ import 'package:barakah40_flutter/features/auth/presentation/providers/auth_prov
 import 'package:barakah40_flutter/features/auth/presentation/screens/login_screen.dart';
 import 'package:barakah40_flutter/features/auth/presentation/screens/register_screen.dart';
 import 'package:barakah40_flutter/features/auth/presentation/screens/welcome_screen.dart';
+import 'package:barakah40_flutter/features/user_state/presentation/providers/user_state_providers.dart';
 import 'package:barakah40_flutter/shared/widgets/premium_fields.dart';
 import 'package:go_router/go_router.dart';
 
 import 'fakes/fake_auth_repository.dart';
+import 'fakes/fake_user_state_repositories.dart';
 
 void main() {
   setUpAll(() async {
@@ -227,10 +230,18 @@ void main() {
       ),
     );
     addTearDown(fake.dispose);
+    final fakeRemote = FakeUserStateRemoteRepository();
+    addTearDown(fakeRemote.dispose);
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [authRepositoryProvider.overrideWithValue(fake)],
+        overrides: [
+          authRepositoryProvider.overrideWithValue(fake),
+          sharedPreferencesProvider.overrideWithValue(prefs),
+          userStateRemoteRepositoryProvider.overrideWithValue(fakeRemote),
+        ],
         child: const BarakahApp(),
       ),
     );
@@ -240,7 +251,7 @@ void main() {
     expect(find.textContaining('نورة'), findsWidgets);
     expect(find.text('user@example.com'), findsOneWidget);
     expect(find.text('سلسلة المواظبة'), findsOneWidget);
-    expect(find.text('تحدّي اليوم'), findsOneWidget);
+    expect(find.text('تحدّي الأربعين'), findsOneWidget);
     expect(find.text('تقدّم القرآن'), findsOneWidget);
     expect(find.text('شجرة البركة'), findsOneWidget);
     expect(find.text('الأذكار'), findsWidgets);

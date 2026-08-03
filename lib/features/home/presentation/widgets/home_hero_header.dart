@@ -7,6 +7,8 @@ import 'package:barakah40_flutter/app/theme/barakah_colors.dart';
 import 'package:barakah40_flutter/core/constants/app_constants.dart';
 import 'package:barakah40_flutter/features/auth/presentation/providers/auth_controller.dart';
 import 'package:barakah40_flutter/features/home/presentation/providers/home_providers.dart';
+import 'package:barakah40_flutter/features/user_state/presentation/providers/user_state_providers.dart';
+import 'package:barakah40_flutter/features/user_state/presentation/widgets/sync_status_label.dart';
 import 'package:barakah40_flutter/shared/widgets/premium_card.dart';
 
 class HomeHeroHeader extends ConsumerWidget {
@@ -18,6 +20,7 @@ class HomeHeroHeader extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = context.barakahColors;
     final busy = ref.watch(authControllerProvider).isSubmitting;
+    final syncStatus = ref.watch(userSyncStatusProvider);
     final name = model.user?.displayName?.trim();
     final email = model.user?.email ?? '';
     final initial = (name?.isNotEmpty ?? false)
@@ -66,6 +69,13 @@ class HomeHeroHeader extends ConsumerWidget {
                         textDirection: TextDirection.ltr,
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
+                    const SizedBox(height: 2),
+                    Text(
+                      syncStatus.labelAr,
+                      style: Theme.of(
+                        context,
+                      ).textTheme.labelSmall?.copyWith(color: colors.inkSoft),
+                    ),
                   ],
                 ),
               ),

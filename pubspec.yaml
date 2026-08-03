@@ -21,7 +21,10 @@ dependencies:
   cloud_firestore: ^6.7.1
   google_sign_in: ^6.3.0
   intl: ^0.20.2
-
+  shared_preferences: ^2.5.5
+  http: ^1.6.0
+  just_audio: ^0.10.6
+  geolocator: ^14.0.3
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -44,3 +47,11 @@ flutter:
     - family: ReemKufi
       fonts:
         - asset: assets/fonts/ReemKufi-Variable.ttf
+    - family: AmiriQuran
+      fonts:
+        - asset: assets/fonts/AmiriQuran-Regular.ttf
+          weight: 400
+    - family: Amiri
+      fonts:
+        - asset: assets/fonts/Amiri-Regular.ttf
+          weight: 400

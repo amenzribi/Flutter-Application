@@ -29,12 +29,16 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  fake_cloud_firestore: ^4.3.0
 
 flutter:
   uses-material-design: true
   assets:
     - assets/images/p_login.webp
     - assets/images/app_icon_192.png
+    - assets/images/bg/
+    - assets/images/pg/
+    - assets/images/tree/
   fonts:
     - family: Tajawal
       fonts:

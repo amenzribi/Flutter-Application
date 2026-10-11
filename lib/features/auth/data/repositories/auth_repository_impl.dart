@@ -22,7 +22,9 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Stream<AppUser?> authStateChanges() {
-    return _auth.authStateChanges().map(
+    // userChanges (not authStateChanges) so the display name set right after
+    // registration reaches the UI and the social profile.
+    return _auth.userChanges().map(
       (user) => user == null ? null : mapFirebaseUser(user),
     );
   }

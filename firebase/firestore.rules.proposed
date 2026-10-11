@@ -1,8 +1,21 @@
 rules_version = '2';
 
 // PROPOSED / source-of-truth copy mirrors firebase/firestore.rules.
-// Deploy only after emulator rules tests pass AND explicit approval:
+// Firestore rules for barakah-40-a5dac (Flutter client).
+//
+// - users/{uid}: private state, owner only.
+// - profiles / emailIndex: public profile + exact-email lookup for friend
+//   search. Emails are never listable.
+// - friendRequests / friendships: one request doc per direction
+//   ({from}_{to}), one friendship per pair ({lowUid}_{highUid}).
+// - conversations: one direct conversation per friendship (same pair id).
+// - challenges: legacy solo/duo/group challenges + group discussion.
+//
+// See docs/SOCIAL_DATA_MODEL.md. Deploy only after the emulator tests pass
+// and explicit approval:
 //   firebase deploy --only firestore:rules --project barakah-40-a5dac
+// No composite indexes are needed: every query is single-field or
+// equality-only (see docs/SOCIAL_DATA_MODEL.md).
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -11,12 +24,358 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function me() {
+      return request.auth.uid;
+    }
+
     function isMe(uid) {
       return signedIn() && request.auth.uid == uid;
     }
 
+    function pairId(a, b) {
+      return a < b ? a + '_' + b : b + '_' + a;
+    }
+
+    function docPath(collection, id) {
+      return /databases/$(database)/documents/$(collection)/$(id);
+    }
+
+    function areFriends(a, b) {
+      return exists(docPath('friendships', pairId(a, b)));
+    }
+
+    function validName(n) {
+      return n is string && n.size() > 0 && n.size() <= 60;
+    }
+
+    function validText(t) {
+      return t is string && t.trim().size() > 0 && t.size() <= 2000;
+    }
+
+    function onlyChanged(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+    }
+
+    // =========================
+    // Private user state
+    // =========================
     match /users/{userId} {
       allow read, write: if isMe(userId);
+    }
+
+    // =========================
+    // Public profile (search results, friend lists)
+    // =========================
+    match /profiles/{uid} {
+      allow get: if signedIn();
+      // Prefix search only, small pages: nobody can dump the directory.
+      allow list: if signedIn() && request.query.limit <= 20;
+
+      allow create, update: if isMe(uid)
+        && request.resource.data.keys().hasOnly([
+          'uid', 'name', 'nameLower', 'username', 'createdAt', 'updatedAt',
+          'treeStage', 'treeHealthy'
+        ])
+        && request.resource.data.uid == uid
+        && validName(request.resource.data.name)
+        && request.resource.data.nameLower == request.resource.data.name.lower()
+        && request.resource.data.username is string
+        && request.resource.data.username.matches('^[a-z0-9._-]{1,40}$');
+
+      allow delete: if isMe(uid);
+    }
+
+    // =========================
+    // Exact email lookup: get by key only, never list. Only the owner of the
+    // signed-in email can claim its key.
+    // =========================
+    match /emailIndex/{emailKey} {
+      allow get: if signedIn();
+      allow list: if false;
+
+      allow create, update: if signedIn()
+        && request.auth.token.email is string
+        && emailKey == request.auth.token.email.lower()
+        && request.resource.data.keys().hasOnly(['uid'])
+        && request.resource.data.uid == me();
+
+      allow delete: if signedIn() && resource.data.uid == me();
+    }
+
+    // =========================
+    // Friend requests: {from}_{to}
+    // status: pending | accepted | declined | cancelled
+    // =========================
+    match /friendRequests/{requestId} {
+      function req() {
+        return request.resource.data;
+      }
+
+      function reversePending(from, to) {
+        return exists(docPath('friendRequests', to + '_' + from))
+          && get(docPath('friendRequests', to + '_' + from)).data.status == 'pending';
+      }
+
+      // A missing doc reveals nothing; lets clients check before writing.
+      allow get: if signedIn()
+        && (resource == null || resource.data.from == me() || resource.data.to == me());
+      allow list: if signedIn()
+        && (resource.data.from == me() || resource.data.to == me());
+
+      allow create: if signedIn()
+        && req().keys().hasOnly(['from', 'to', 'fromName', 'toName', 'status', 'createdAt', 'updatedAt'])
+        && req().from == me()
+        && req().to is string
+        && req().to != me()
+        && requestId == me() + '_' + req().to
+        && req().status == 'pending'
+        && validName(req().fromName)
+        && req().toName is string
+        && req().createdAt == request.time
+        && req().updatedAt == request.time
+        && exists(docPath('profiles', req().to))
+        && !areFriends(me(), req().to)
+        && !reversePending(me(), req().to);
+
+      allow update: if signedIn()
+        && onlyChanged(['status', 'updatedAt', 'fromName', 'toName'])
+        && req().from == resource.data.from
+        && req().to == resource.data.to
+        && req().updatedAt == request.time
+        && (
+          // Sender re-sends a closed request.
+          (
+            resource.data.from == me()
+            && resource.data.status in ['declined', 'cancelled', 'accepted']
+            && req().status == 'pending'
+            && !areFriends(me(), resource.data.to)
+            && !reversePending(me(), resource.data.to)
+          )
+          ||
+          // Sender cancels a pending request.
+          (
+            resource.data.from == me()
+            && resource.data.status == 'pending'
+            && req().status == 'cancelled'
+          )
+          ||
+          // Recipient declines.
+          (
+            resource.data.to == me()
+            && resource.data.status == 'pending'
+            && req().status == 'declined'
+          )
+          ||
+          // Recipient accepts: the friendship must exist once this batch commits.
+          (
+            resource.data.to == me()
+            && resource.data.status == 'pending'
+            && req().status == 'accepted'
+            && existsAfter(docPath('friendships', pairId(resource.data.from, me())))
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    // =========================
+    // Friendships: {lowUid}_{highUid}
+    // =========================
+    match /friendships/{pair} {
+      allow get: if signedIn() && (resource == null || me() in resource.data.users);
+      allow list: if signedIn() && me() in resource.data.users;
+
+      // Created only by the recipient of a pending request, in the same
+      // batch that marks that request accepted.
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['users', 'names', 'since'])
+        && request.resource.data.users is list
+        && request.resource.data.users.size() == 2
+        && request.resource.data.users[0] < request.resource.data.users[1]
+        && pair == request.resource.data.users[0] + '_' + request.resource.data.users[1]
+        && me() in request.resource.data.users
+        && request.resource.data.since == request.time
+        && request.resource.data.names is map
+        && (
+          (
+            request.resource.data.users[0] != me()
+            && get(docPath('friendRequests', request.resource.data.users[0] + '_' + me())).data.status == 'pending'
+            && getAfter(docPath('friendRequests', request.resource.data.users[0] + '_' + me())).data.status == 'accepted'
+          )
+          ||
+          (
+            request.resource.data.users[1] != me()
+            && get(docPath('friendRequests', request.resource.data.users[1] + '_' + me())).data.status == 'pending'
+            && getAfter(docPath('friendRequests', request.resource.data.users[1] + '_' + me())).data.status == 'accepted'
+          )
+        );
+
+      allow update: if false;
+
+      // Either friend can end the friendship.
+      allow delete: if signedIn() && me() in resource.data.users;
+    }
+
+    // =========================
+    // Direct conversations: same id as the friendship
+    // =========================
+    match /conversations/{cid} {
+      function conv() {
+        return get(docPath('conversations', cid)).data;
+      }
+
+      allow get: if signedIn() && (resource == null || me() in resource.data.members);
+      allow list: if signedIn() && me() in resource.data.members;
+
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+          'type', 'members', 'names', 'createdAt', 'updatedAt', 'lastMessage', 'unread'
+        ])
+        && request.resource.data.type == 'direct'
+        && request.resource.data.members is list
+        && request.resource.data.members.size() == 2
+        && request.resource.data.members[0] < request.resource.data.members[1]
+        && cid == request.resource.data.members[0] + '_' + request.resource.data.members[1]
+        && me() in request.resource.data.members
+        && exists(docPath('friendships', cid));
+
+      allow update: if signedIn()
+        && me() in resource.data.members
+        && onlyChanged(['lastMessage', 'updatedAt', 'unread', 'names']);
+
+      allow delete: if false;
+
+      match /messages/{mid} {
+        allow read: if signedIn() && me() in conv().members;
+
+        allow create: if signedIn()
+          && me() in conv().members
+          && exists(docPath('friendships', cid))
+          && request.resource.data.keys().hasOnly(['senderId', 'senderName', 'text', 'createdAt'])
+          && request.resource.data.senderId == me()
+          && request.resource.data.senderName is string
+          && validText(request.resource.data.text)
+          && request.resource.data.createdAt == request.time;
+
+        allow update, delete: if false;
+      }
+    }
+
+    // =========================
+    // Challenges (solo / duo / group) + group discussion
+    // =========================
+    match /challenges/{cid} {
+      function chal() {
+        return get(docPath('challenges', cid)).data;
+      }
+
+      function isMember() {
+        return signedIn() && me() in chal().members;
+      }
+
+      function added() {
+        return request.resource.data.members.toSet().difference(resource.data.members.toSet());
+      }
+
+      function removed() {
+        return resource.data.members.toSet().difference(request.resource.data.members.toSet());
+      }
+
+      allow read: if signedIn() && me() in resource.data.members;
+
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+          'type', 'name', 'ownerUid', 'members', 'names', 'createdAt', 'updatedAt',
+          'goalDays', 'lastMessage'
+        ])
+        && request.resource.data.type in ['solo', 'duo', 'group']
+        && validName(request.resource.data.name)
+        && request.resource.data.ownerUid == me()
+        && request.resource.data.goalDays == 40
+        && request.resource.data.members is list
+        && (
+          request.resource.data.members == [me()]
+          ||
+          (
+            request.resource.data.members.size() == 2
+            && request.resource.data.members[0] == me()
+            && areFriends(me(), request.resource.data.members[1])
+          )
+        );
+
+      allow update: if signedIn()
+        && me() in resource.data.members
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.type == resource.data.type
+        && request.resource.data.goalDays == resource.data.goalDays
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.members is list
+        && request.resource.data.members.size() <= 30
+        && (
+          // Activity / naming without membership changes.
+          (
+            request.resource.data.members == resource.data.members
+            && onlyChanged(['lastMessage', 'updatedAt', 'names'])
+          )
+          ||
+          // Owner renames.
+          (
+            request.resource.data.members == resource.data.members
+            && resource.data.ownerUid == me()
+            && onlyChanged(['name', 'updatedAt'])
+            && validName(request.resource.data.name)
+          )
+          ||
+          // Any member adds one of their own friends (legacy behaviour).
+          (
+            resource.data.type == 'group'
+            && removed().size() == 0
+            && added().size() == 1
+            && request.resource.data.members.size() == resource.data.members.size() + 1
+            // arrayUnion appends, so the new member is the last element.
+            && areFriends(me(), request.resource.data.members[request.resource.data.members.size() - 1])
+            && onlyChanged(['members', 'names', 'updatedAt'])
+          )
+          ||
+          // A non-owner member leaves.
+          (
+            resource.data.ownerUid != me()
+            && added().size() == 0
+            && removed() == [me()].toSet()
+            && onlyChanged(['members', 'names', 'updatedAt'])
+          )
+          ||
+          // The owner removes another member.
+          (
+            resource.data.ownerUid == me()
+            && added().size() == 0
+            && removed().size() == 1
+            && !(me() in removed())
+            && onlyChanged(['members', 'names', 'updatedAt'])
+          )
+        );
+
+      allow delete: if signedIn() && resource.data.ownerUid == me();
+
+      match /progress/{uid} {
+        allow read: if isMember();
+        allow create, update: if isMember()
+          && uid == me()
+          && request.resource.data.uid == me();
+        allow delete: if signedIn()
+          && (uid == me() || chal().ownerUid == me());
+      }
+
+      match /messages/{mid} {
+        allow read: if isMember();
+        allow create: if isMember()
+          && request.resource.data.keys().hasOnly(['senderId', 'senderName', 'text', 'createdAt'])
+          && request.resource.data.senderId == me()
+          && request.resource.data.senderName is string
+          && validText(request.resource.data.text)
+          && request.resource.data.createdAt == request.time;
+        allow update, delete: if false;
+      }
     }
 
     match /{document=**} {

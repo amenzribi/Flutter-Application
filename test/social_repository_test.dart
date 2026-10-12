@@ -110,6 +110,44 @@ void main() {
       },
     );
 
+    test(
+      'simultaneous invites leave no stale pending request after accepting',
+      () async {
+        // Both requests landed before either side saw the other's.
+        await repo.sendFriendRequest(amina, await profile(huda));
+        await db.collection('friendRequests').doc('h1_a1').set({
+          'from': 'h1',
+          'to': 'a1',
+          'fromName': 'هدى',
+          'toName': 'أمينة',
+          'status': 'pending',
+        });
+        final theirs = (await repo.watchIncomingRequests('a1').first).single;
+        await repo.acceptFriendRequest(amina, theirs);
+
+        expect(await repo.watchFriends('h1').first, hasLength(1));
+        expect(await repo.watchIncomingRequests('h1').first, isEmpty);
+        expect(await repo.watchOutgoingRequests('a1').first, isEmpty);
+      },
+    );
+
+    test('accepting twice is harmless; a cancelled invite is reported', () async {
+      await repo.sendFriendRequest(amina, await profile(huda));
+      final req = (await repo.watchIncomingRequests('h1').first).single;
+      await repo.acceptFriendRequest(huda, req);
+      await repo.acceptFriendRequest(huda, req);
+      expect(await repo.watchFriends('h1').first, hasLength(1));
+
+      await repo.sendFriendRequest(sara, await profile(huda));
+      final fromSara = (await repo.watchIncomingRequests('h1').first).single;
+      await repo.cancelFriendRequest('s1', fromSara);
+      expect(
+        () => repo.acceptFriendRequest(huda, fromSara),
+        throwsA(isA<SocialException>()),
+      );
+      expect(await repo.watchFriends('s1').first, isEmpty);
+    });
+
     test('already friends short-circuits', () async {
       await repo.sendFriendRequest(amina, await profile(huda));
       final req = (await repo.watchIncomingRequests('h1').first).single;
@@ -245,10 +283,15 @@ void main() {
         type: ChallengeType.group,
         name: '  حلقة الجمعة ',
       );
-      await repo.addChallengeMember(id, 'h1', 'هدى');
-      await repo.addChallengeMember(id, 's1', 'سارة');
+      await repo.inviteToChallenge(id, 'h1', 'هدى');
+      await repo.inviteToChallenge(id, 's1', 'سارة');
+      expect(await repo.watchChallenges('h1').first, isEmpty);
+      expect(await repo.watchChallengeInvites('h1').first, hasLength(1));
+      await repo.acceptChallengeInvite(huda, id);
+      await repo.acceptChallengeInvite(sara, id);
 
       var c = (await repo.watchChallenge(id).first)!;
+      expect(c.invited, isEmpty);
       expect(c.name, 'حلقة الجمعة');
       expect(c.members, ['a1', 'h1', 's1']);
       expect(c.isOwner('a1'), isTrue);
@@ -277,15 +320,89 @@ void main() {
       expect((await repo.watchChallenge(id).first)!.members, ['a1']);
     });
 
-    test('owner leaving deletes the challenge', () async {
+    test('owner leaving deletes the challenge, progress and discussion', () async {
       final id = await repo.createChallenge(
         amina,
-        type: ChallengeType.solo,
+        type: ChallengeType.group,
         name: 'وردي',
+      );
+      await repo.sendMessage(amina, ThreadRef.challenge(id), 'بسم الله');
+      await repo.updateMyChallengeProgress(
+        amina,
+        id,
+        List.generate(40, (i) => i < 2),
       );
       final c = (await repo.watchChallenge(id).first)!;
       await repo.leaveChallenge('a1', c);
       expect(await repo.watchChallenge(id).first, isNull);
+      final ref = db.collection('challenges').doc(id);
+      expect((await ref.collection('messages').get()).size, 0);
+      expect((await ref.collection('progress').get()).size, 0);
+    });
+
+    test('duo invites the friend, who joins only on accepting', () async {
+      final id = await repo.createChallenge(
+        amina,
+        type: ChallengeType.duo,
+        name: 'معاً',
+        friendUid: 'h1',
+        friendName: 'هدى',
+      );
+      var c = (await repo.watchChallenge(id).first)!;
+      expect(c.members, ['a1']);
+      expect(c.invited, ['h1']);
+      expect(c.canInvite, isFalse);
+
+      await repo.acceptChallengeInvite(huda, id);
+      // A second tap is harmless.
+      await repo.acceptChallengeInvite(huda, id);
+      c = (await repo.watchChallenge(id).first)!;
+      expect(c.members, ['a1', 'h1']);
+      expect(c.invited, isEmpty);
+      expect(await repo.watchChallenges('h1').first, hasLength(1));
+      expect(await repo.watchChallengeInvites('h1').first, isEmpty);
+    });
+
+    test('decline is recorded and a re-invite clears it', () async {
+      final id = await repo.createChallenge(
+        amina,
+        type: ChallengeType.duo,
+        name: 'معاً',
+        friendUid: 'h1',
+        friendName: 'هدى',
+      );
+      await repo.declineChallengeInvite('h1', id);
+      var c = (await repo.watchChallenge(id).first)!;
+      expect(c.members, ['a1']);
+      expect(c.invited, isEmpty);
+      expect(c.declined, ['h1']);
+      expect(c.canInvite, isTrue);
+      // Answering twice is reported, not silently repeated.
+      expect(
+        () => repo.declineChallengeInvite('h1', id),
+        throwsA(isA<SocialException>()),
+      );
+
+      await repo.inviteToChallenge(id, 'h1', 'هدى');
+      c = (await repo.watchChallenge(id).first)!;
+      expect(c.invited, ['h1']);
+      expect(c.declined, isEmpty);
+    });
+
+    test('a cancelled invitation can no longer be accepted', () async {
+      final id = await repo.createChallenge(
+        amina,
+        type: ChallengeType.group,
+        name: 'حلقة',
+      );
+      await repo.inviteToChallenge(id, 'h1', 'هدى');
+      await repo.cancelChallengeInvite(id, 'h1');
+      expect(await repo.watchChallengeInvites('h1').first, isEmpty);
+      expect(
+        () => repo.acceptChallengeInvite(huda, id),
+        throwsA(isA<SocialException>()),
+      );
+      expect((await repo.watchChallenge(id).first)!.members, ['a1']);
     });
 
     test('duo needs a friend and empty names are rejected', () async {

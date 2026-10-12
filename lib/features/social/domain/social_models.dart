@@ -320,6 +320,8 @@ class GroupChallenge {
     required this.ownerUid,
     required this.members,
     required this.names,
+    this.invited = const [],
+    this.declined = const [],
     this.goalDays = 40,
     this.createdAt,
     this.lastMessage,
@@ -332,6 +334,13 @@ class GroupChallenge {
   final String ownerUid;
   final List<String> members;
   final Map<String, String> names;
+
+  /// Friends invited but not yet answered. They see the challenge, not its
+  /// progress or discussion, until they accept.
+  final List<String> invited;
+
+  /// Friends who declined, so the others can see the answer.
+  final List<String> declined;
   final int goalDays;
   final DateTime? createdAt;
   final LastMessage? lastMessage;
@@ -346,6 +355,15 @@ class GroupChallenge {
 
   bool get hasDiscussion => type != ChallengeType.solo;
 
+  bool isInvited(String uid) => invited.contains(uid);
+
+  /// A duo has room for one partner, joined or invited.
+  bool get canInvite => switch (type) {
+    ChallengeType.solo => false,
+    ChallengeType.duo => members.length + invited.length < 2,
+    ChallengeType.group => members.length + invited.length < 30,
+  };
+
   factory GroupChallenge.fromMap(String id, Map<String, dynamic> data) {
     return GroupChallenge(
       id: id,
@@ -354,6 +372,8 @@ class GroupChallenge {
       ownerUid: data['ownerUid'] as String? ?? '',
       members: _stringList(data['members']),
       names: _stringMap(data['names']),
+      invited: _stringList(data['invited']),
+      declined: _stringList(data['declined']),
       goalDays: (data['goalDays'] as num?)?.toInt() ?? 40,
       createdAt: _toDate(data['createdAt']),
       lastMessage: LastMessage.fromMap(data['lastMessage']),

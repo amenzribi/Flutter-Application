@@ -67,9 +67,16 @@ abstract class SocialRepository {
   Future<void> sendMessage(SocialIdentity me, ThreadRef thread, String text);
   Future<void> markConversationRead(String me, String conversationId);
 
+  /// Challenges I am a member of.
   Stream<List<GroupChallenge>> watchChallenges(String me);
+
+  /// Challenges a friend invited me to that I have not answered yet.
+  Stream<List<GroupChallenge>> watchChallengeInvites(String me);
   Stream<GroupChallenge?> watchChallenge(String id);
   Stream<List<ChallengeMemberProgress>> watchChallengeProgress(String id);
+
+  /// Creates a challenge with me as its only member. For a duo, [friendUid]
+  /// is invited and joins once she accepts.
   Future<String> createChallenge(
     SocialIdentity me, {
     required ChallengeType type,
@@ -77,8 +84,20 @@ abstract class SocialRepository {
     String? friendUid,
     String? friendName,
   });
-  Future<void> addChallengeMember(String challengeId, String uid, String name);
+
+  /// Invites one of my friends; she joins when she accepts.
+  Future<void> inviteToChallenge(
+    String challengeId,
+    String friendUid,
+    String friendName,
+  );
+  Future<void> cancelChallengeInvite(String challengeId, String uid);
+  Future<void> acceptChallengeInvite(SocialIdentity me, String challengeId);
+  Future<void> declineChallengeInvite(String me, String challengeId);
   Future<void> removeChallengeMember(String challengeId, String uid);
+
+  /// A member leaves; the owner leaving deletes the challenge, its progress
+  /// rows and its discussion.
   Future<void> leaveChallenge(String me, GroupChallenge challenge);
   Future<void> updateMyChallengeProgress(
     SocialIdentity me,

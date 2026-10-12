@@ -44,5 +44,6 @@ AppUser mapFirebaseUser(User user) {
     email: user.email,
     displayName: user.displayName,
     emailVerified: user.emailVerified,
+    isPasswordUser: user.providerData.any((p) => p.providerId == 'password'),
   );
 }

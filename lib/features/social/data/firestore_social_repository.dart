@@ -205,12 +205,36 @@ class FirestoreSocialRepository implements SocialRepository {
         final pair = socialPairId(request.from, me.uid);
         final friendshipRef = _friendships.doc(pair);
         final requestRef = _requests.doc(request.id);
-        final already = await friendshipRef.get();
+        // My own request the other way, if we invited each other at once.
+        final crossedRef = _requests.doc(friendRequestId(me.uid, request.from));
+        final (already, current, crossed) = await (
+          friendshipRef.get(),
+          requestRef.get(),
+          crossedRef.get(),
+        ).wait;
+        final status = current.data()?['status'];
+        if (status != FriendRequestStatus.pending.name) {
+          // A second tap, or another device already answered. Accepted and
+          // friends means the work is done; anything else is a real change.
+          if (status == FriendRequestStatus.accepted.name && already.exists) {
+            return;
+          }
+          throw const SocialException(
+            'لم يعد هذا الطلب قائماً. ربما أُلغي أو تمّ الردّ عليه.',
+            code: 'stale',
+          );
+        }
         final batch = _db.batch();
         batch.update(requestRef, {
           'status': FriendRequestStatus.accepted.name,
           'updatedAt': FieldValue.serverTimestamp(),
         });
+        if (crossed.data()?['status'] == FriendRequestStatus.pending.name) {
+          batch.update(crossedRef, {
+            'status': FriendRequestStatus.cancelled.name,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        }
         if (!already.exists) {
           final users = [request.from, me.uid]..sort();
           batch.set(friendshipRef, {
@@ -372,6 +396,19 @@ class FirestoreSocialRepository implements SocialRepository {
       );
 
   @override
+  Stream<List<GroupChallenge>> watchChallengeInvites(String me) => _challenges
+      .where('invited', arrayContains: me)
+      .snapshots()
+      .map(
+        (s) =>
+            s.docs.map((d) => GroupChallenge.fromMap(d.id, d.data())).toList()
+              ..sort(
+                (a, b) => (b.updatedAt ?? b.createdAt ?? DateTime(3000))
+                    .compareTo(a.updatedAt ?? a.createdAt ?? DateTime(3000)),
+              ),
+      );
+
+  @override
   Stream<GroupChallenge?> watchChallenge(String id) =>
       _challenges.doc(id).snapshots().map((s) {
         final data = s.data();
@@ -407,17 +444,16 @@ class FirestoreSocialRepository implements SocialRepository {
     if (type == ChallengeType.duo && friendUid == null) {
       throw const SocialException('اختاري صديقة للتحدّي الثنائي.');
     }
-    final members = [me.uid, if (type == ChallengeType.duo) friendUid!];
+    final duo = type == ChallengeType.duo;
     final ref = _challenges.doc();
     await ref.set({
       'type': type.name,
       'name': trimmed,
       'ownerUid': me.uid,
-      'members': members,
-      'names': {
-        me.uid: me.name,
-        if (type == ChallengeType.duo) friendUid!: friendName ?? 'صديقة',
-      },
+      'members': [me.uid],
+      'invited': [if (duo) friendUid!],
+      'declined': <String>[],
+      'names': {me.uid: me.name, if (duo) friendUid!: friendName ?? 'صديقة'},
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
       'goalDays': 40,
@@ -427,17 +463,69 @@ class FirestoreSocialRepository implements SocialRepository {
   });
 
   @override
-  Future<void> addChallengeMember(
+  Future<void> inviteToChallenge(
     String challengeId,
-    String uid,
-    String name,
+    String friendUid,
+    String friendName,
   ) => _guard(
     () => _challenges.doc(challengeId).update({
-      'members': FieldValue.arrayUnion([uid]),
-      'names.$uid': name,
+      'invited': FieldValue.arrayUnion([friendUid]),
+      'declined': FieldValue.arrayRemove([friendUid]),
+      'names.$friendUid': friendName,
       'updatedAt': FieldValue.serverTimestamp(),
     }),
   );
+
+  @override
+  Future<void> cancelChallengeInvite(String challengeId, String uid) => _guard(
+    () => _challenges.doc(challengeId).update({
+      'invited': FieldValue.arrayRemove([uid]),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }),
+  );
+
+  @override
+  Future<void> acceptChallengeInvite(SocialIdentity me, String challengeId) =>
+      _guard(() async {
+        final ref = _challenges.doc(challengeId);
+        final snap = await ref.get();
+        final c = snap.data() == null
+            ? null
+            : GroupChallenge.fromMap(snap.id, snap.data()!);
+        // A second tap after joining is already done.
+        if (c != null && c.members.contains(me.uid)) return;
+        if (c == null || !c.isInvited(me.uid)) {
+          throw const SocialException(
+            'لم تعد هذه الدعوة قائمة. ربما أُلغيت أو حُذف التحدّي.',
+            code: 'stale',
+          );
+        }
+        await ref.update({
+          'members': FieldValue.arrayUnion([me.uid]),
+          'invited': FieldValue.arrayRemove([me.uid]),
+          'names.${me.uid}': me.name,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      });
+
+  @override
+  Future<void> declineChallengeInvite(String me, String challengeId) =>
+      _guard(() async {
+        final ref = _challenges.doc(challengeId);
+        final snap = await ref.get();
+        final invited = snap.data()?['invited'];
+        if (invited is! List || !invited.contains(me)) {
+          throw const SocialException(
+            'لم تعد هذه الدعوة قائمة. ربما أُلغيت أو حُذف التحدّي.',
+            code: 'stale',
+          );
+        }
+        await ref.update({
+          'invited': FieldValue.arrayRemove([me]),
+          'declined': FieldValue.arrayUnion([me]),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      });
 
   @override
   Future<void> removeChallengeMember(String challengeId, String uid) =>
@@ -462,6 +550,19 @@ class FirestoreSocialRepository implements SocialRepository {
       _guard(() async {
         final ref = _challenges.doc(challenge.id);
         if (challenge.isOwner(me)) {
+          // Clear progress and discussion first: once the challenge document
+          // is gone, nobody can read or delete them any more.
+          for (final sub in ['progress', 'messages']) {
+            while (true) {
+              final page = await ref.collection(sub).limit(400).get();
+              if (page.docs.isEmpty) break;
+              final batch = _db.batch();
+              for (final d in page.docs) {
+                batch.delete(d.reference);
+              }
+              await batch.commit();
+            }
+          }
           await ref.delete();
           return;
         }

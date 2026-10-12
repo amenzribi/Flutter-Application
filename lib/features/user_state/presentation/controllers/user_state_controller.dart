@@ -141,6 +141,10 @@ class UserStateController extends StateNotifier<UserStateSnapshot> {
   /// newer transition started can detect it's stale and no-op.
   int _loadGeneration = 0;
 
+  /// A write was skipped because the password account's email is not yet
+  /// confirmed; retried once it is.
+  bool _heldForVerification = false;
+
   /// `null` once [dispose] has been called, so pending async work resuming
   /// after teardown (e.g. in tests) can no-op instead of throwing when it
   /// tries to touch `state`.
@@ -154,11 +158,18 @@ class UserStateController extends StateNotifier<UserStateSnapshot> {
   Future<void> _handleAuthUser(AppUser? user) async {
     if (user != null && user.uid == state.uid) {
       // Same signed-in user re-emitted (e.g. Firebase token refresh) — the
-      // session hasn't actually changed, nothing to reload.
+      // session hasn't actually changed, nothing to reload. The one change
+      // that matters: the email was just confirmed, so the progress held
+      // back on this device can now go to the cloud.
+      if (_heldForVerification && _allowsCloudWrite(user)) {
+        _heldForVerification = false;
+        await _pushNow(user: user, appState: state.appState);
+      }
       return;
     }
 
     final generation = ++_loadGeneration;
+    _heldForVerification = false;
     await _remoteSubscription?.cancel();
     _remoteSubscription = null;
     _debounceTimer?.cancel();
@@ -247,6 +258,7 @@ class UserStateController extends StateNotifier<UserStateSnapshot> {
     if (!mounted) return;
     if (!_allowsCloudWrite(user)) {
       // Legacy: skip only when `isPwUser(u) && emailVerified===false`.
+      _heldForVerification = true;
       state = state.copyWith(syncStatus: SyncStatus.offline);
       return;
     }

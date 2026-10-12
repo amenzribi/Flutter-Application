@@ -6,6 +6,7 @@ import 'package:barakah40_flutter/app/theme/app_spacing.dart';
 import 'package:barakah40_flutter/app/theme/barakah_colors.dart';
 import 'package:barakah40_flutter/core/constants/app_constants.dart';
 import 'package:barakah40_flutter/features/auth/presentation/providers/auth_controller.dart';
+import 'package:barakah40_flutter/features/auth/presentation/providers/auth_providers.dart';
 import 'package:barakah40_flutter/features/home/presentation/providers/home_providers.dart';
 import 'package:barakah40_flutter/features/user_state/presentation/providers/user_state_providers.dart';
 import 'package:barakah40_flutter/features/user_state/presentation/widgets/sync_status_label.dart';
@@ -94,6 +95,10 @@ class HomeHeroHeader extends ConsumerWidget {
               ),
             ],
           ),
+          if (model.user?.needsEmailVerification ?? false) ...[
+            const SizedBox(height: AppSpacing.md),
+            const _VerifyEmailNotice(),
+          ],
           const SizedBox(height: AppSpacing.lg),
           Wrap(
             spacing: AppSpacing.sm,
@@ -109,6 +114,87 @@ class HomeHeroHeader extends ConsumerWidget {
                 label: model.gregorianLabel,
               ),
               _MetaChip(icon: Icons.nightlight_round, label: model.hijriLabel),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Legacy "تأكيد البريد" sheet as an inline notice: progress stays on this
+/// device until the email is confirmed, then syncs.
+class _VerifyEmailNotice extends ConsumerStatefulWidget {
+  const _VerifyEmailNotice();
+
+  @override
+  ConsumerState<_VerifyEmailNotice> createState() => _VerifyEmailNoticeState();
+}
+
+class _VerifyEmailNoticeState extends ConsumerState<_VerifyEmailNotice> {
+  String? _busy;
+
+  Future<void> _run(String key, Future<String> Function() action) async {
+    setState(() => _busy = key);
+    final messenger = ScaffoldMessenger.of(context);
+    String message;
+    try {
+      message = await action();
+    } catch (_) {
+      message = 'تعذّر الاتصال. تحقّقي من الشبكة ثم أعيدي المحاولة.';
+    }
+    if (!mounted) return;
+    setState(() => _busy = null);
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.barakahColors;
+    final repo = ref.read(authRepositoryProvider);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colors.surfaceMuted,
+        borderRadius: AppRadii.smAll,
+        border: Border.all(color: colors.gold.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'أكّدي بريدكِ لتفعيل المزامنة. حتى ذلك الحين يُحفظ تقدّمكِ على هذا الجهاز فقط.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: colors.ink,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              OutlinedButton(
+                onPressed: _busy != null
+                    ? null
+                    : () => _run('send', () async {
+                        await repo.sendEmailVerification();
+                        return 'أُرسل الرابط — افحصي مجلد الرسائل غير المرغوبة (Spam)';
+                      }),
+                child: Text(_busy == 'send' ? 'جارٍ الإرسال…' : 'إرسال الرابط'),
+              ),
+              FilledButton(
+                onPressed: _busy != null
+                    ? null
+                    : () => _run('check', () async {
+                        final user = await repo.reloadUser();
+                        return user?.emailVerified == true
+                            ? 'تمّ التحقّق — المزامنة مفعّلة'
+                            : 'لم يتمّ التأكيد بعد';
+                      }),
+                child: Text(_busy == 'check' ? 'جارٍ التحقّق…' : 'لقد أكّدت'),
+              ),
             ],
           ),
         ],

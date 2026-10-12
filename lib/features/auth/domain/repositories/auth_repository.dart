@@ -21,5 +21,11 @@ abstract class AuthRepository {
 
   Future<AppUser> signInWithGoogle();
 
+  /// Sends the "confirm your email" link to the signed-in password user.
+  Future<void> sendEmailVerification();
+
+  /// Re-reads the signed-in user (e.g. after confirming the email elsewhere).
+  Future<AppUser?> reloadUser();
+
   Future<void> logout();
 }

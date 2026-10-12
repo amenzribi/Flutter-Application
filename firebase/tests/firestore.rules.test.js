@@ -264,6 +264,22 @@ describe('friend requests', () => {
     await assertSucceeds(db('alice').doc('friendRequests/bob_alice').update({ status: 'accepted', updatedAt: ts() }));
   });
 
+  it('accepting a crossed request also closes my own pending one', async () => {
+    await seed(async (f) => {
+      await f.doc('friendRequests/alice_bob').set({ ...requestData('alice', 'bob'), createdAt: 1, updatedAt: 1 });
+      await f.doc('friendRequests/bob_alice').set({ ...requestData('bob', 'alice'), createdAt: 1, updatedAt: 1 });
+    });
+    const f = db('bob');
+    const batch = f.batch();
+    batch.update(f.doc('friendRequests/alice_bob'), { status: 'accepted', updatedAt: ts() });
+    batch.update(f.doc('friendRequests/bob_alice'), { status: 'cancelled', updatedAt: ts() });
+    const [x, y] = ['alice', 'bob'].sort();
+    batch.set(f.doc(`friendships/${x}_${y}`), { users: [x, y], names: { [x]: x, [y]: y }, since: ts() });
+    await assertSucceeds(batch.commit());
+    // A second accept after the friendship exists is refused (already accepted).
+    await assertFails(acceptBatch(db('bob'), 'alice', 'bob'));
+  });
+
   it('either friend can unfriend; outsiders cannot', async () => {
     await makeFriends('alice', 'bob');
     await assertFails(db('carol').doc(`friendships/${pair('alice', 'bob')}`).delete());
@@ -357,11 +373,14 @@ describe('direct conversations', () => {
 });
 
 describe('challenges and group discussion', () => {
-  const chal = (owner, members, type = 'group') => ({
+  const FV = () => firebase.firestore.FieldValue;
+  const chal = (owner, invited = [], type = 'group') => ({
     type,
     name: 'تحدّي البقرة',
     ownerUid: owner,
-    members,
+    members: [owner],
+    invited,
+    declined: [],
     names: {},
     createdAt: ts(),
     updatedAt: ts(),
@@ -369,6 +388,34 @@ describe('challenges and group discussion', () => {
     lastMessage: null,
   });
   const msg = (sender) => ({ senderId: sender, senderName: sender, text: 'هيا بنا', createdAt: ts() });
+  const row = (uid, days = 3) => ({
+    uid,
+    name: uid,
+    days,
+    percent: Math.round((days / 40) * 100),
+    cells: Array.from({ length: 40 }, (_, i) => i < days),
+    at: Date.now(),
+  });
+  const invite = (f, id, uid) =>
+    f.doc(`challenges/${id}`).update({
+      invited: FV().arrayUnion(uid),
+      declined: FV().arrayRemove(uid),
+      [`names.${uid}`]: uid,
+      updatedAt: ts(),
+    });
+  const accept = (uid, id) =>
+    db(uid).doc(`challenges/${id}`).update({
+      members: FV().arrayUnion(uid),
+      invited: FV().arrayRemove(uid),
+      [`names.${uid}`]: uid,
+      updatedAt: ts(),
+    });
+  const decline = (uid, id) =>
+    db(uid).doc(`challenges/${id}`).update({
+      invited: FV().arrayRemove(uid),
+      declined: FV().arrayUnion(uid),
+      updatedAt: ts(),
+    });
 
   beforeEach(async () => {
     await seedProfiles('alice', 'bob', 'carol', 'dave');
@@ -378,29 +425,85 @@ describe('challenges and group discussion', () => {
 
   async function group() {
     const ref = db('alice').collection('challenges').doc('g1');
-    await ref.set(chal('alice', ['alice']));
+    await ref.set(chal('alice'));
     return ref;
   }
 
-  it('creates with self only, or with one friend for duo', async () => {
-    await assertSucceeds(db('alice').doc('challenges/c1').set(chal('alice', ['alice'])));
-    await assertSucceeds(db('alice').doc('challenges/c2').set(chal('alice', ['alice', 'bob'], 'duo')));
-    await assertFails(db('alice').doc('challenges/c3').set(chal('alice', ['alice', 'carol'], 'duo')));
-    await assertFails(db('alice').doc('challenges/c4').set(chal('bob', ['alice'])));
+  async function groupWithBob() {
+    const ref = await group();
+    await invite(db('alice'), 'g1', 'bob');
+    await accept('bob', 'g1');
+    return ref;
+  }
+
+  it('creates with self as the only member; a duo invites one friend', async () => {
+    await assertSucceeds(db('alice').doc('challenges/c1').set(chal('alice')));
+    await assertSucceeds(db('alice').doc('challenges/c2').set(chal('alice', ['bob'], 'duo')));
+    await assertFails(db('alice').doc('challenges/c3').set(chal('alice', ['carol'], 'duo'))); // not a friend
+    await assertFails(db('alice').doc('challenges/c4').set(chal('bob')));
+    // Nobody can be put straight into members any more.
+    await assertFails(db('alice').doc('challenges/c5').set({ ...chal('alice', [], 'duo'), members: ['alice', 'bob'] }));
+    await assertFails(db('alice').doc('challenges/c6').set(chal('alice', ['bob', 'carol'], 'duo')));
   });
 
-  it('member adds one of their friends; non-friends and outsiders denied', async () => {
+  it('members invite their own friends; nobody is added without accepting', async () => {
     await group();
-    const add = (f, uid) =>
-      f.doc('challenges/g1').update({
-        members: firebase.firestore.FieldValue.arrayUnion(uid),
+    await assertFails(invite(db('alice'), 'g1', 'carol')); // not Alice's friend
+    await assertFails(invite(db('bob'), 'g1', 'carol')); // Bob is not a member yet
+    await assertFails(
+      db('alice').doc('challenges/g1').update({ members: FV().arrayUnion('bob'), updatedAt: ts() }),
+    );
+    await assertSucceeds(invite(db('alice'), 'g1', 'bob'));
+    await assertFails(db('bob').collection('challenges/g1/messages').get()); // invited, not a member
+    await assertSucceeds(db('bob').doc('challenges/g1').get()); // but sees the invitation
+    await assertSucceeds(
+      db('bob').collection('challenges').where('invited', 'array-contains', 'bob').get(),
+    );
+    await assertSucceeds(accept('bob', 'g1'));
+    await assertSucceeds(invite(db('bob'), 'g1', 'carol')); // Bob's friend
+    await assertFails(invite(db('dave'), 'g1', 'dave'));
+  });
+
+  it('only the invitee accepts or declines, and only once', async () => {
+    await group();
+    await invite(db('alice'), 'g1', 'bob');
+    await assertFails(accept('carol', 'g1'));
+    await assertFails(
+      db('alice').doc('challenges/g1').update({
+        members: FV().arrayUnion('bob'),
+        invited: FV().arrayRemove('bob'),
         updatedAt: ts(),
-      });
-    await assertFails(add(db('alice'), 'carol')); // not Alice's friend
-    await assertFails(add(db('bob'), 'carol')); // Bob is not a member yet
-    await assertSucceeds(add(db('alice'), 'bob'));
-    await assertSucceeds(add(db('bob'), 'carol')); // Bob's friend
-    await assertFails(add(db('dave'), 'dave'));
+      }),
+    );
+    await assertSucceeds(decline('bob', 'g1'));
+    await assertFails(accept('bob', 'g1')); // no longer invited
+    await assertFails(decline('bob', 'g1'));
+    // Re-inviting clears the refusal.
+    await assertSucceeds(invite(db('alice'), 'g1', 'bob'));
+    await assertSucceeds(accept('bob', 'g1'));
+    // A repeated accept changes nothing: Bob is listed once.
+    await accept('bob', 'g1');
+    const after = await db('alice').doc('challenges/g1').get();
+    assert.deepStrictEqual(after.data().members, ['alice', 'bob']);
+    assert.deepStrictEqual(after.data().invited, []);
+  });
+
+  it('a member cancels a pending invitation; outsiders cannot', async () => {
+    await group();
+    await invite(db('alice'), 'g1', 'bob');
+    const cancel = (f) =>
+      f.doc('challenges/g1').update({ invited: FV().arrayRemove('bob'), updatedAt: ts() });
+    await assertFails(cancel(db('dave')));
+    await assertSucceeds(cancel(db('alice')));
+    await assertFails(accept('bob', 'g1'));
+  });
+
+  it('a duo holds two people at most', async () => {
+    await db('alice').doc('challenges/d1').set(chal('alice', ['bob'], 'duo'));
+    await makeFriends('alice', 'carol');
+    await assertFails(invite(db('alice'), 'd1', 'carol'));
+    await assertSucceeds(decline('bob', 'd1'));
+    await assertSucceeds(invite(db('alice'), 'd1', 'carol'));
   });
 
   it('only members read the group and its messages', async () => {
@@ -416,25 +519,24 @@ describe('challenges and group discussion', () => {
   });
 
   it('member leaves, loses access; owner removes members', async () => {
-    const ref = await group();
-    await ref.update({ members: firebase.firestore.FieldValue.arrayUnion('bob'), updatedAt: ts() });
-    await db('bob').doc('challenges/g1').update({ members: firebase.firestore.FieldValue.arrayUnion('carol'), updatedAt: ts() });
+    await groupWithBob();
+    await invite(db('bob'), 'g1', 'carol');
+    await accept('carol', 'g1');
     await assertSucceeds(
-      db('carol').doc('challenges/g1').update({ members: firebase.firestore.FieldValue.arrayRemove('carol'), updatedAt: ts() }),
+      db('carol').doc('challenges/g1').update({ members: FV().arrayRemove('carol'), updatedAt: ts() }),
     );
     await assertFails(db('carol').collection('challenges/g1/messages').get());
     // Bob cannot remove the owner; owner removes Bob.
     await assertFails(
-      db('bob').doc('challenges/g1').update({ members: firebase.firestore.FieldValue.arrayRemove('alice'), updatedAt: ts() }),
+      db('bob').doc('challenges/g1').update({ members: FV().arrayRemove('alice'), updatedAt: ts() }),
     );
     await assertSucceeds(
-      db('alice').doc('challenges/g1').update({ members: firebase.firestore.FieldValue.arrayRemove('bob'), updatedAt: ts() }),
+      db('alice').doc('challenges/g1').update({ members: FV().arrayRemove('bob'), updatedAt: ts() }),
     );
   });
 
   it('only the owner renames or deletes', async () => {
-    const ref = await group();
-    await ref.update({ members: firebase.firestore.FieldValue.arrayUnion('bob'), updatedAt: ts() });
+    await groupWithBob();
     await assertFails(db('bob').doc('challenges/g1').update({ name: 'x', updatedAt: ts() }));
     await assertFails(db('bob').doc('challenges/g1').update({ ownerUid: 'bob' }));
     await assertSucceeds(db('alice').doc('challenges/g1').update({ name: 'جديد', updatedAt: ts() }));
@@ -442,13 +544,40 @@ describe('challenges and group discussion', () => {
     await assertSucceeds(db('alice').doc('challenges/g1').delete());
   });
 
-  it('progress: each member writes own row only', async () => {
-    const ref = await group();
-    await ref.update({ members: firebase.firestore.FieldValue.arrayUnion('bob'), updatedAt: ts() });
-    await assertSucceeds(db('bob').doc('challenges/g1/progress/bob').set({ uid: 'bob', days: 3 }));
-    await assertFails(db('bob').doc('challenges/g1/progress/alice').set({ uid: 'alice', days: 40 }));
+  it('owner clears progress and discussion before deleting; members cannot', async () => {
+    await groupWithBob();
+    const m = await db('bob').collection('challenges/g1/messages').add(msg('bob'));
+    await db('bob').doc('challenges/g1/progress/bob').set(row('bob'));
+    await assertFails(db('bob').doc(m.path).delete());
+    await assertSucceeds(db('alice').doc(m.path).delete());
+    await assertSucceeds(db('alice').doc('challenges/g1/progress/bob').delete());
+  });
+
+  it('progress: each member writes own bounded row only', async () => {
+    await groupWithBob();
+    await assertSucceeds(db('bob').doc('challenges/g1/progress/bob').set(row('bob')));
+    await assertFails(db('bob').doc('challenges/g1/progress/alice').set(row('alice', 40)));
+    await assertFails(db('bob').doc('challenges/g1/progress/bob').set(row('bob', 41)));
+    await assertFails(db('bob').doc('challenges/g1/progress/bob').set({ ...row('bob'), days: -1 }));
+    await assertFails(db('bob').doc('challenges/g1/progress/bob').set({ ...row('bob'), extra: 1 }));
     await assertSucceeds(db('alice').doc('challenges/g1/progress/bob').get());
     await assertFails(db('dave').doc('challenges/g1/progress/bob').get());
+    // Invited but not yet a member: no progress row.
+    await invite(db('bob'), 'g1', 'carol');
+    await assertFails(db('carol').doc('challenges/g1/progress/carol').set(row('carol')));
+  });
+
+  it('challenges created before invitations keep working', async () => {
+    await seed(async (f) => {
+      await f.doc('challenges/old').set({
+        type: 'group', name: 'قديم', ownerUid: 'alice', members: ['alice', 'bob'],
+        names: {}, createdAt: 1, updatedAt: 1, goalDays: 40, lastMessage: null,
+      });
+    });
+    await assertSucceeds(db('bob').doc('challenges/old').get());
+    await assertSucceeds(db('bob').collection('challenges/old/messages').add(msg('bob')));
+    await assertSucceeds(invite(db('bob'), 'old', 'carol'));
+    await assertSucceeds(accept('carol', 'old'));
   });
 });
 

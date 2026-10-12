@@ -1,6 +1,5 @@
 rules_version = '2';
 
-// PROPOSED / source-of-truth copy mirrors firebase/firestore.rules.
 // Firestore rules for barakah-40-a5dac (Flutter client).
 //
 // - users/{uid}: private state, owner only.
@@ -275,85 +274,167 @@ service cloud.firestore {
         return signedIn() && me() in chal().members;
       }
 
+      // Pending invitations and refusals. Absent on challenges created before
+      // invitations existed, hence get() with a default.
+      function invitedOf(d) {
+        return d.get('invited', []);
+      }
+
+      function declinedOf(d) {
+        return d.get('declined', []);
+      }
+
+      function newData() {
+        return request.resource.data;
+      }
+
       function added() {
-        return request.resource.data.members.toSet().difference(resource.data.members.toSet());
+        return newData().members.toSet().difference(resource.data.members.toSet());
       }
 
       function removed() {
-        return resource.data.members.toSet().difference(request.resource.data.members.toSet());
+        return resource.data.members.toSet().difference(newData().members.toSet());
       }
 
-      allow read: if signedIn() && me() in resource.data.members;
+      function sameMembers() {
+        return newData().members == resource.data.members;
+      }
 
+      function sameInvited() {
+        return invitedOf(newData()) == invitedOf(resource.data);
+      }
+
+      function sameDeclined() {
+        return declinedOf(newData()) == declinedOf(resource.data);
+      }
+
+      // Members and invited friends see the challenge; only members see its
+      // progress and discussion.
+      allow read: if signedIn()
+        && (me() in resource.data.members || me() in invitedOf(resource.data));
+
+      // A challenge starts with its creator as the only member. A duo names
+      // one friend as a pending invitation; she joins when she accepts.
       allow create: if signedIn()
-        && request.resource.data.keys().hasOnly([
+        && newData().keys().hasOnly([
           'type', 'name', 'ownerUid', 'members', 'names', 'createdAt', 'updatedAt',
-          'goalDays', 'lastMessage'
+          'goalDays', 'lastMessage', 'invited', 'declined'
         ])
-        && request.resource.data.type in ['solo', 'duo', 'group']
-        && validName(request.resource.data.name)
-        && request.resource.data.ownerUid == me()
-        && request.resource.data.goalDays == 40
-        && request.resource.data.members is list
+        && newData().type in ['solo', 'duo', 'group']
+        && validName(newData().name)
+        && newData().ownerUid == me()
+        && newData().goalDays == 40
+        && newData().members == [me()]
+        && newData().createdAt == request.time
+        && declinedOf(newData()) == []
         && (
-          request.resource.data.members == [me()]
+          invitedOf(newData()) == []
           ||
           (
-            request.resource.data.members.size() == 2
-            && request.resource.data.members[0] == me()
-            && areFriends(me(), request.resource.data.members[1])
+            newData().type == 'duo'
+            && invitedOf(newData()).size() == 1
+            && areFriends(me(), invitedOf(newData())[0])
           )
         );
 
       allow update: if signedIn()
-        && me() in resource.data.members
-        && request.resource.data.ownerUid == resource.data.ownerUid
-        && request.resource.data.type == resource.data.type
-        && request.resource.data.goalDays == resource.data.goalDays
-        && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.members is list
-        && request.resource.data.members.size() <= 30
+        && newData().ownerUid == resource.data.ownerUid
+        && newData().type == resource.data.type
+        && newData().goalDays == resource.data.goalDays
+        && newData().createdAt == resource.data.createdAt
+        && newData().members is list
+        && invitedOf(newData()) is list
+        && declinedOf(newData()) is list
+        && newData().members.size() + invitedOf(newData()).size() <= 30
         && (
-          // Activity / naming without membership changes.
+          // ---- Member actions ----
           (
-            request.resource.data.members == resource.data.members
-            && onlyChanged(['lastMessage', 'updatedAt', 'names'])
+            me() in resource.data.members
+            && (
+              // Activity / naming without membership changes.
+              (
+                sameMembers() && sameInvited() && sameDeclined()
+                && onlyChanged(['lastMessage', 'updatedAt', 'names'])
+              )
+              ||
+              // Owner renames.
+              (
+                sameMembers() && sameInvited() && sameDeclined()
+                && resource.data.ownerUid == me()
+                && onlyChanged(['name', 'updatedAt'])
+                && validName(newData().name)
+              )
+              ||
+              // Invite one of my own friends. arrayUnion appends, so the new
+              // invitee is the last element. A duo holds two people at most.
+              (
+                sameMembers()
+                && resource.data.type in ['group', 'duo']
+                && invitedOf(newData()).size() == invitedOf(resource.data).size() + 1
+                && invitedOf(newData()).toSet().difference(invitedOf(resource.data).toSet())
+                     == [invitedOf(newData())[invitedOf(newData()).size() - 1]].toSet()
+                && !(invitedOf(newData())[invitedOf(newData()).size() - 1] in resource.data.members)
+                && areFriends(me(), invitedOf(newData())[invitedOf(newData()).size() - 1])
+                && (resource.data.type == 'group'
+                    || newData().members.size() + invitedOf(newData()).size() <= 2)
+                // Re-inviting someone who declined clears the refusal.
+                && declinedOf(newData()).toSet()
+                     == declinedOf(resource.data).toSet().difference(
+                          [invitedOf(newData())[invitedOf(newData()).size() - 1]].toSet())
+                && onlyChanged(['invited', 'declined', 'names', 'updatedAt'])
+              )
+              ||
+              // Cancel one pending invitation.
+              (
+                sameMembers() && sameDeclined()
+                && invitedOf(newData()).size() == invitedOf(resource.data).size() - 1
+                && invitedOf(resource.data).toSet().difference(invitedOf(newData()).toSet()).size() == 1
+                && onlyChanged(['invited', 'updatedAt'])
+              )
+              ||
+              // A non-owner member leaves.
+              (
+                resource.data.ownerUid != me()
+                && sameInvited() && sameDeclined()
+                && added().size() == 0
+                && removed() == [me()].toSet()
+                && onlyChanged(['members', 'names', 'updatedAt'])
+              )
+              ||
+              // The owner removes another member.
+              (
+                resource.data.ownerUid == me()
+                && sameInvited() && sameDeclined()
+                && added().size() == 0
+                && removed().size() == 1
+                && !(me() in removed())
+                && onlyChanged(['members', 'names', 'updatedAt'])
+              )
+            )
           )
           ||
-          // Owner renames.
+          // ---- Invitee actions ----
           (
-            request.resource.data.members == resource.data.members
-            && resource.data.ownerUid == me()
-            && onlyChanged(['name', 'updatedAt'])
-            && validName(request.resource.data.name)
-          )
-          ||
-          // Any member adds one of their own friends (legacy behaviour).
-          (
-            resource.data.type == 'group'
-            && removed().size() == 0
-            && added().size() == 1
-            && request.resource.data.members.size() == resource.data.members.size() + 1
-            // arrayUnion appends, so the new member is the last element.
-            && areFriends(me(), request.resource.data.members[request.resource.data.members.size() - 1])
-            && onlyChanged(['members', 'names', 'updatedAt'])
-          )
-          ||
-          // A non-owner member leaves.
-          (
-            resource.data.ownerUid != me()
-            && added().size() == 0
-            && removed() == [me()].toSet()
-            && onlyChanged(['members', 'names', 'updatedAt'])
-          )
-          ||
-          // The owner removes another member.
-          (
-            resource.data.ownerUid == me()
-            && added().size() == 0
-            && removed().size() == 1
-            && !(me() in removed())
-            && onlyChanged(['members', 'names', 'updatedAt'])
+            me() in invitedOf(resource.data)
+            && invitedOf(newData()).toSet() == invitedOf(resource.data).toSet().difference([me()].toSet())
+            && invitedOf(newData()).size() == invitedOf(resource.data).size() - 1
+            && (
+              // Accept: join the members.
+              (
+                removed().size() == 0
+                && added() == [me()].toSet()
+                && newData().members.size() == resource.data.members.size() + 1
+                && sameDeclined()
+                && onlyChanged(['members', 'invited', 'names', 'updatedAt'])
+              )
+              ||
+              // Decline: recorded so the inviter sees the answer.
+              (
+                sameMembers()
+                && declinedOf(newData()).toSet() == declinedOf(resource.data).toSet().union([me()].toSet())
+                && onlyChanged(['invited', 'declined', 'updatedAt'])
+              )
+            )
           )
         );
 
@@ -361,9 +442,23 @@ service cloud.firestore {
 
       match /progress/{uid} {
         allow read: if isMember();
+        // A mirror of the member's own 40-day grid: bounded, so a member
+        // cannot claim more days than the challenge has.
         allow create, update: if isMember()
           && uid == me()
-          && request.resource.data.uid == me();
+          && request.resource.data.keys().hasOnly(['uid', 'name', 'days', 'percent', 'cells', 'at'])
+          && request.resource.data.uid == me()
+          && request.resource.data.name is string
+          && request.resource.data.name.size() <= 60
+          && request.resource.data.days is int
+          && request.resource.data.days >= 0
+          && request.resource.data.days <= chal().goalDays
+          && request.resource.data.percent is int
+          && request.resource.data.percent >= 0
+          && request.resource.data.percent <= 100
+          && request.resource.data.cells is list
+          && request.resource.data.cells.size() <= chal().goalDays
+          && request.resource.data.at is int;
         allow delete: if signedIn()
           && (uid == me() || chal().ownerUid == me());
       }
@@ -376,7 +471,10 @@ service cloud.firestore {
           && request.resource.data.senderName is string
           && validText(request.resource.data.text)
           && request.resource.data.createdAt == request.time;
-        allow update, delete: if false;
+        allow update: if false;
+        // The owner may delete messages; the app does so only to clear the
+        // discussion when the owner deletes the whole challenge.
+        allow delete: if signedIn() && chal().ownerUid == me();
       }
     }
 

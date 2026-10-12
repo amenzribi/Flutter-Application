@@ -79,6 +79,15 @@ class FakeAuthRepository implements AuthRepository {
     });
   }
 
+  int verificationCalls = 0;
+
+  @override
+  Future<void> sendEmailVerification() =>
+      _guard(() async => verificationCalls++);
+
+  @override
+  Future<AppUser?> reloadUser() async => _user;
+
   @override
   Future<AppUser> signInWithGoogle() {
     return _guard(() async {

@@ -13,11 +13,17 @@ class AuthRepositoryImpl implements AuthRepository {
     GoogleSignIn? googleSignIn,
     UserDocumentService? userDocumentService,
   }) : _auth = firebaseAuth ?? FirebaseAuth.instance,
-       _googleSignIn = googleSignIn ?? GoogleSignIn(scopes: const ['email']),
+       _injectedGoogleSignIn = googleSignIn,
        _userDocs = userDocumentService ?? UserDocumentService();
 
   final FirebaseAuth _auth;
-  final GoogleSignIn _googleSignIn;
+  final GoogleSignIn? _injectedGoogleSignIn;
+
+  // Created on first native use only. On web, sign-in goes through the
+  // Firebase popup, and constructing the plugin without a web client id
+  // throws an uncaught error at startup.
+  late final GoogleSignIn _googleSignIn =
+      _injectedGoogleSignIn ?? GoogleSignIn(scopes: const ['email']);
   final UserDocumentService _userDocs;
 
   @override
@@ -66,6 +72,14 @@ class AuthRepositoryImpl implements AuthRepository {
       name: trimmedName,
       email: trimmedEmail,
     );
+
+    // Progress syncs to the cloud once the email is confirmed (legacy rule);
+    // the home screen offers to resend this link.
+    try {
+      await user.sendEmailVerification();
+    } catch (error, stackTrace) {
+      AppLogger.error('sendEmailVerification after register', error, stackTrace);
+    }
 
     return mapFirebaseUser(user);
   }
@@ -141,10 +155,28 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
+  Future<void> sendEmailVerification() async {
+    final user = _auth.currentUser;
+    if (user == null || user.emailVerified) return;
+    await user.sendEmailVerification();
+  }
+
+  @override
+  Future<AppUser?> reloadUser() async {
+    final user = _auth.currentUser;
+    if (user == null) return null;
+    await user.reload();
+    // reload() alone does not refresh the ID token's email_verified claim.
+    await _auth.currentUser?.getIdToken(true);
+    final fresh = _auth.currentUser;
+    return fresh == null ? null : mapFirebaseUser(fresh);
+  }
+
+  @override
   Future<void> logout() async {
     AppLogger.info('Signing out');
     try {
-      await _googleSignIn.signOut();
+      if (!kIsWeb) await _googleSignIn.signOut();
     } catch (error, stackTrace) {
       AppLogger.error('Google signOut cleanup failed', error, stackTrace);
     }

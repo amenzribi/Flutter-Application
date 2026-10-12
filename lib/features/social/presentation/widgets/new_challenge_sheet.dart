@@ -153,9 +153,17 @@ class _NewChallengeSheetState extends ConsumerState<_NewChallengeSheet> {
                     ),
                   ),
             ],
+            if (_type == ChallengeType.duo && friends.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  'تصل صديقتكِ دعوة، وتنضمّ إلى التحدّي عندما تقبلها.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
             if (_type == ChallengeType.group)
               Text(
-                'بعد الإنشاء أضيفي صديقاتكِ من صفحة التحدّي. يمكن لكل عضوة إضافة صديقاتها.',
+                'بعد الإنشاء ادعي صديقاتكِ من صفحة التحدّي. يمكن لكل عضوة دعوة صديقاتها، وتنضمّ كل واحدة عندما تقبل.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             if (_error != null) ...[

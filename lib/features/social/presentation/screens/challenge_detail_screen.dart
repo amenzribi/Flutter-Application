@@ -51,6 +51,7 @@ class _ChallengeDetailScreenState extends ConsumerState<ChallengeDetailScreen> {
         // permission-denied, which we present as "no longer a member".
         error: (e, _) => const _Gone(),
         data: (c) {
+          if (c != null && c.isInvited(me)) return _Invited(challenge: c);
           if (c == null || !c.members.contains(me)) return const _Gone();
           final tabs = ['التقدّم', if (c.hasDiscussion) 'النقاش', 'العضوات'];
           final tab = _tab.clamp(0, tabs.length - 1);
@@ -100,6 +101,87 @@ class _Gone extends StatelessWidget {
             TextButton(
               onPressed: () => context.go('${AppRoutes.community}?tab=2'),
               child: const Text('العودة إلى التحديات'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Shown to an invited friend: progress and discussion open after accepting.
+class _Invited extends ConsumerStatefulWidget {
+  const _Invited({required this.challenge});
+
+  final GroupChallenge challenge;
+
+  @override
+  ConsumerState<_Invited> createState() => _InvitedState();
+}
+
+class _InvitedState extends ConsumerState<_Invited> {
+  String? _busy;
+
+  Future<void> _run(String key, Future<void> Function() action) async {
+    setState(() => _busy = key);
+    try {
+      await action();
+      if (mounted && key == 'dec') {
+        showSocialSnack(context, 'اعتذرتِ عن التحدّي');
+        context.go('${AppRoutes.community}?tab=2');
+      }
+    } on SocialException catch (e) {
+      if (mounted) showSocialSnack(context, e.message);
+    } finally {
+      if (mounted) setState(() => _busy = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.challenge;
+    final me = ref.watch(socialIdentityProvider);
+    final repo = ref.read(socialRepositoryProvider);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            EmptyNote(
+              message:
+                  'دعتكِ ${c.nameOf(c.ownerUid)} إلى «${c.name}» '
+                  '(${c.type.arabicLabel}، ${c.goalDays} يوماً). '
+                  'بعد القبول يظهر تقدّمكِ لعضوات التحدّي ويُفتح النقاش.',
+            ),
+            const SizedBox(height: 14),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                MiniButton(
+                  label: 'قبول',
+                  tone: MiniButtonTone.ok,
+                  busy: _busy == 'acc',
+                  onPressed: _busy != null || me == null
+                      ? null
+                      : () => _run(
+                          'acc',
+                          () => repo.acceptChallengeInvite(me, c.id),
+                        ),
+                ),
+                const SizedBox(width: 8),
+                MiniButton(
+                  label: 'اعتذار',
+                  tone: MiniButtonTone.no,
+                  busy: _busy == 'dec',
+                  onPressed: _busy != null || me == null
+                      ? null
+                      : () => _run(
+                          'dec',
+                          () => repo.declineChallengeInvite(me.uid, c.id),
+                        ),
+                ),
+              ],
             ),
           ],
         ),
@@ -262,7 +344,9 @@ class _MembersTabState extends ConsumerState<_MembersTab> {
     final friends = ref.watch(friendsProvider).valueOrNull ?? const [];
     final addable = [
       for (final f in friends)
-        if (!c.members.contains(f.otherUid(me))) f,
+        if (!c.members.contains(f.otherUid(me)) &&
+            !c.invited.contains(f.otherUid(me)))
+          f,
     ];
     final repo = ref.read(socialRepositoryProvider);
 
@@ -302,16 +386,59 @@ class _MembersTabState extends ConsumerState<_MembersTab> {
               ],
             ),
           ),
-        if (c.type == ChallengeType.group) ...[
+        for (final uid in c.invited)
+          LegacyRow(
+            child: Row(
+              children: [
+                SocialAvatar(uid: uid, name: c.nameOf(uid)),
+                const SizedBox(width: 11),
+                Expanded(
+                  child: Text(
+                    '${c.nameOf(uid)} · بانتظار القبول',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                MiniButton(
+                  label: 'إلغاء الدعوة',
+                  tone: MiniButtonTone.no,
+                  busy: _busy == 'inv$uid',
+                  onPressed: _busy != null
+                      ? null
+                      : () => _run(
+                          'inv$uid',
+                          () => repo.cancelChallengeInvite(c.id, uid),
+                          'أُلغيت الدعوة',
+                        ),
+                ),
+              ],
+            ),
+          ),
+        for (final uid in c.declined)
+          if (!c.members.contains(uid) && !c.invited.contains(uid))
+            LegacyRow(
+              child: Row(
+                children: [
+                  SocialAvatar(uid: uid, name: c.nameOf(uid)),
+                  const SizedBox(width: 11),
+                  Expanded(
+                    child: Text(
+                      '${c.nameOf(uid)} · اعتذرت',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        if (c.type != ChallengeType.solo && c.canInvite) ...[
           const SizedBox(height: 12),
           Text(
-            'إضافة من صديقاتكِ',
+            'دعوة من صديقاتكِ',
             style: Theme.of(context).textTheme.titleSmall,
           ),
           const SizedBox(height: 8),
           if (addable.isEmpty)
             const EmptyNote(
-              message: 'كل صديقاتكِ في التحدّي، أو لا صديقات بعد.',
+              message: 'كل صديقاتكِ في التحدّي أو مدعوّات، أو لا صديقات بعد.',
             )
           else
             for (final f in addable)
@@ -322,19 +449,19 @@ class _MembersTabState extends ConsumerState<_MembersTab> {
                     const SizedBox(width: 11),
                     Expanded(child: Text(f.otherName(me))),
                     MiniButton(
-                      label: 'إضافة',
+                      label: 'دعوة',
                       tone: MiniButtonTone.ok,
                       busy: _busy == f.id,
                       onPressed: _busy != null
                           ? null
                           : () => _run(
                               f.id,
-                              () => repo.addChallengeMember(
+                              () => repo.inviteToChallenge(
                                 c.id,
                                 f.otherUid(me),
                                 f.otherName(me),
                               ),
-                              'أُضيفت ${f.otherName(me)}',
+                              'أُرسلت الدعوة إلى ${f.otherName(me)}',
                             ),
                     ),
                   ],

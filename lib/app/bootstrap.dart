@@ -8,6 +8,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:barakah40_flutter/app/app.dart';
+import 'package:barakah40_flutter/app/emulator_session_guard.dart';
 import 'package:barakah40_flutter/core/logging/app_logger.dart';
 import 'package:barakah40_flutter/features/user_state/presentation/providers/user_state_providers.dart';
 import 'package:barakah40_flutter/firebase_options.dart';
@@ -27,6 +28,9 @@ Future<void> bootstrap() async {
   final prefs = await SharedPreferences.getInstance();
 
   try {
+    if (_useEmulators && !kReleaseMode && kIsWeb) {
+      await clearStoredFirebaseSession();
+    }
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );

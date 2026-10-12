@@ -27,7 +27,7 @@ class _FriendsPanelState extends ConsumerState<FriendsPanel> {
   @override
   Widget build(BuildContext context) {
     final friends = ref.watch(friendsProvider);
-    final incoming = ref.watch(incomingRequestsProvider);
+    final incoming = ref.watch(visibleIncomingRequestsProvider);
     final outgoing = ref.watch(visibleOutgoingRequestsProvider);
     final frN = friends.valueOrNull?.length ?? 0;
     final inN = incoming.valueOrNull?.length ?? 0;

@@ -57,6 +57,20 @@ final visibleOutgoingRequestsProvider =
           );
     });
 
+/// Pending requests to me, minus any from someone who is already a friend
+/// (left behind when two people invited each other at the same moment).
+final visibleIncomingRequestsProvider =
+    Provider<AsyncValue<List<FriendRequest>>>((ref) {
+      final friends = ref.watch(friendsProvider).valueOrNull ?? const [];
+      final me = ref.watch(socialIdentityProvider)?.uid ?? '';
+      final friendUids = {for (final f in friends) f.otherUid(me)};
+      return ref
+          .watch(incomingRequestsProvider)
+          .whenData(
+            (list) => list.where((r) => !friendUids.contains(r.from)).toList(),
+          );
+    });
+
 final conversationsProvider = StreamProvider<List<Conversation>>((ref) {
   final me = ref.watch(socialIdentityProvider);
   if (me == null) return Stream.value(const []);
@@ -72,8 +86,10 @@ final unreadTotalProvider = Provider<int>((ref) {
 
 /// Badge for the community entry point: unread messages + incoming requests.
 final communityBadgeProvider = Provider<int>((ref) {
-  final requests = ref.watch(incomingRequestsProvider).valueOrNull ?? const [];
-  return ref.watch(unreadTotalProvider) + requests.length;
+  final requests =
+      ref.watch(visibleIncomingRequestsProvider).valueOrNull ?? const [];
+  final invites = ref.watch(challengeInvitesProvider).valueOrNull ?? const [];
+  return ref.watch(unreadTotalProvider) + requests.length + invites.length;
 });
 
 final conversationProvider = StreamProvider.autoDispose
@@ -90,6 +106,12 @@ final challengesProvider = StreamProvider<List<GroupChallenge>>((ref) {
   final me = ref.watch(socialIdentityProvider);
   if (me == null) return Stream.value(const []);
   return ref.watch(socialRepositoryProvider).watchChallenges(me.uid);
+});
+
+final challengeInvitesProvider = StreamProvider<List<GroupChallenge>>((ref) {
+  final me = ref.watch(socialIdentityProvider);
+  if (me == null) return Stream.value(const []);
+  return ref.watch(socialRepositoryProvider).watchChallengeInvites(me.uid);
 });
 
 final challengeProvider = StreamProvider.autoDispose

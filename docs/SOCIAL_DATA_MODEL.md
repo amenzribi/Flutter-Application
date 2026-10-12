@@ -20,7 +20,7 @@ providers, screens). Rules: `firebase/firestore.rules`, tested by
 | `friendships/{low}_{high}` | the two uids, sorted | the two friends | created when an invite is accepted; either friend can delete |
 | `conversations/{low}_{high}` | same id as the friendship | the two members | members, for `lastMessage`, `updatedAt`, `unread`, `names` only |
 | `conversations/{id}/messages/{mid}` | auto | members | a member who is still a friend; immutable |
-| `challenges/{cid}` | auto | members | see "Group challenges" below |
+| `challenges/{cid}` | auto | members and invited friends | see "Group challenges" below |
 | `challenges/{cid}/progress/{uid}` | member uid | members | that member only |
 | `challenges/{cid}/messages/{mid}` | auto | members | members; immutable |
 
@@ -70,6 +70,14 @@ writes:
 Both sides watch `status == pending` queries, so pending, accepted and
 cancelled states update live on both phones.
 
+`acceptFriendRequest` re-reads the request first. If it is no longer pending
+it either returns quietly (already accepted and friends, e.g. a double tap) or
+reports that the invitation was cancelled or answered. If both people invited
+each other at the same moment, so that both requests landed before either saw
+the other's, accepting one also cancels the acceptor's own pending request in
+the same batch, and lists hide any request from someone who is already a
+friend, so no stale "pending" is left behind.
+
 ## Private chat
 
 - The conversation id is the friendship id, so two friends always share one
@@ -94,23 +102,43 @@ This follows legacy behaviour: solo, duo or group, a 40-day goal, and a
 progress row per member mirrored from the member's own 40-day grid. Groups
 add a discussion tab.
 
+Scoring is unchanged from legacy: a member's progress is the number of days
+she has marked complete in her own 40-day grid (`days`, `percent = days/40`).
+The row is a mirror of that grid, rewritten whole on every change, so marking
+the same day twice can never count twice. The rules cap `days` at `goalDays`.
+There is no end date or expiry, as in the legacy app; a member who reaches 40
+shows 40/40.
+
+**Invitations (new, replaces legacy direct adding).** Nobody joins a challenge
+without accepting. `challenges/{cid}` carries `invited` (pending) and
+`declined` (answered no) uid lists next to `members`. Challenges created before
+this change have neither field and keep working.
+
 | Action | Who |
 |---|---|
-| Create | anyone; duo only with a friend |
-| Add a member (groups) | any member, one of **their own** friends, one at a time, 30 members at most |
+| Create | anyone; the creator is the only member. A duo names one friend in `invited` |
+| Invite | any member, one of **their own** friends, one at a time; 30 people at most (members + invited); a duo holds 2 |
+| Accept | the invited friend: moves herself from `invited` to `members` |
+| Decline | the invited friend: moves herself from `invited` to `declined`, so the others see the answer |
+| Cancel an invitation | any member |
+| Re-invite after a decline | any member (clears the decline) |
 | Rename | owner |
 | Remove a member | owner |
 | Leave | any non-owner member (their own progress row is removed first) |
-| Delete | owner ("leaving" as owner deletes the challenge after a confirmation) |
+| Delete | owner ("leaving" as owner deletes the challenge after a confirmation). The app first deletes the progress rows and the discussion, which nobody could reach once the challenge document is gone |
 | Post in discussion | members |
 
-Adding is direct, with no acceptance step, as in the legacy app.
+An invited friend can read the challenge document (name, inviter, type) to
+answer the invitation, but not its progress or discussion until she accepts.
+Invitations appear under "دعوات إلى تحديات" in the challenges tab, with a
+badge on the tab.
 
 ## Indexes
 
 None are needed beyond Firestore's automatic single-field indexes. Requests
 use two equality filters, search uses a range on one field, and lists use
-`array-contains` on one field.
+`array-contains` on one field (`members`, or `invited` for challenge
+invitations).
 
 ## Known limits
 
@@ -123,3 +151,9 @@ use two equality filters, search uses a range on one field, and lists use
   counters on their own conversation; that only affects badges.
 - There is no blocking or reporting yet, and no push notifications for new
   messages or invites (the app must be open).
+- A person appears in search only after signing in to the Flutter app once
+  (that is when `profiles/{uid}` is written). There is no server function to
+  create profiles for accounts that never open the app.
+- The sender of a declined friend request is not told; the request simply
+  leaves her "sent" list.
+- Chat shows the latest 100 messages; older ones are not paged in yet.

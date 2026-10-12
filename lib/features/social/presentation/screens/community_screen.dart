@@ -33,8 +33,10 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
   Widget build(BuildContext context) {
     final colors = context.barakahColors;
     final requests =
-        ref.watch(incomingRequestsProvider).valueOrNull?.length ?? 0;
+        ref.watch(visibleIncomingRequestsProvider).valueOrNull?.length ?? 0;
     final unread = ref.watch(unreadTotalProvider);
+    final invites =
+        ref.watch(challengeInvitesProvider).valueOrNull?.length ?? 0;
 
     return PremiumScaffold(
       style: PremiumScaffoldStyle.photo,
@@ -78,7 +80,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
                   Icons.chat_bubble_outline_rounded,
                   Icons.grid_view_rounded,
                 ],
-                badges: {0: requests, 1: unread},
+                badges: {0: requests, 1: unread, 2: invites},
               ),
               const SizedBox(height: 16),
               Container(
@@ -214,6 +216,8 @@ class _ChallengesPanel extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = context.barakahColors;
+    final invites = ref.watch(challengeInvitesProvider).valueOrNull ?? const [];
+    final me = ref.watch(socialIdentityProvider)?.uid ?? '';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -223,6 +227,12 @@ class _ChallengesPanel extends ConsumerWidget {
           onPressed: () => showNewChallengeSheet(context),
         ),
         const SizedBox(height: 14),
+        if (invites.isNotEmpty) ...[
+          Text('دعوات إلى تحديات', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 8),
+          for (final c in invites) _ChallengeInviteRow(challenge: c, me: me),
+          const SizedBox(height: 10),
+        ],
         ref
             .watch(challengesProvider)
             .when(
@@ -279,9 +289,7 @@ class _ChallengesPanel extends ConsumerWidget {
                                         ),
                                       ),
                                       Text(
-                                        c.lastMessage != null
-                                            ? c.lastMessage!.text
-                                            : '${c.type.arabicLabel} · ${c.members.length} عضوات',
+                                        _subtitle(c),
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
@@ -300,6 +308,119 @@ class _ChallengesPanel extends ConsumerWidget {
                     ),
             ),
       ],
+    );
+  }
+
+  static String _subtitle(GroupChallenge c) {
+    if (c.lastMessage != null) return c.lastMessage!.text;
+    if (c.type == ChallengeType.duo && c.members.length < 2) {
+      if (c.invited.isNotEmpty) {
+        return 'بانتظار قبول ${c.nameOf(c.invited.first)}';
+      }
+      if (c.declined.isNotEmpty) {
+        return 'اعتذرت ${c.nameOf(c.declined.last)} عن التحدّي';
+      }
+    }
+    final pending = c.invited.isEmpty ? '' : ' · ${c.invited.length} بانتظار';
+    return '${c.type.arabicLabel} · ${c.members.length} عضوات$pending';
+  }
+}
+
+/// A challenge a friend invited me to: accept to join, or decline.
+class _ChallengeInviteRow extends ConsumerStatefulWidget {
+  const _ChallengeInviteRow({required this.challenge, required this.me});
+
+  final GroupChallenge challenge;
+  final String me;
+
+  @override
+  ConsumerState<_ChallengeInviteRow> createState() =>
+      _ChallengeInviteRowState();
+}
+
+class _ChallengeInviteRowState extends ConsumerState<_ChallengeInviteRow> {
+  String? _busy;
+
+  Future<void> _run(String key, Future<void> Function() action) async {
+    // Captured up front: once answered, the invitation leaves the live list
+    // and this row is disposed before the write returns.
+    final router = GoRouter.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _busy = key);
+    try {
+      await action();
+      if (key == 'acc') {
+        router.push(AppRoutes.challengeDetailPath(widget.challenge.id));
+      } else {
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(const SnackBar(content: Text('اعتذرتِ عن التحدّي')));
+      }
+    } on SocialException catch (e) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _busy = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.challenge;
+    final me = ref.watch(socialIdentityProvider);
+    final repo = ref.read(socialRepositoryProvider);
+    final colors = context.barakahColors;
+    return LegacyRow(
+      child: Row(
+        children: [
+          SocialAvatar(uid: c.ownerUid, name: c.nameOf(c.ownerUid)),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  c.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontFamily: 'ReemKufi',
+                    fontSize: 15,
+                    color: colors.ink,
+                  ),
+                ),
+                Text(
+                  'دعوة من ${c.nameOf(c.ownerUid)} · ${c.type.arabicLabel}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 12, color: colors.muted),
+                ),
+              ],
+            ),
+          ),
+          MiniButton(
+            label: 'قبول',
+            tone: MiniButtonTone.ok,
+            busy: _busy == 'acc',
+            onPressed: _busy != null || me == null
+                ? null
+                : () => _run('acc', () => repo.acceptChallengeInvite(me, c.id)),
+          ),
+          const SizedBox(width: 6),
+          MiniButton(
+            label: 'اعتذار',
+            tone: MiniButtonTone.no,
+            busy: _busy == 'dec',
+            onPressed: _busy != null || me == null
+                ? null
+                : () => _run(
+                    'dec',
+                    () => repo.declineChallengeInvite(me.uid, c.id),
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }

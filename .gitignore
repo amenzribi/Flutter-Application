@@ -43,3 +43,10 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Local Firebase emulator data (test accounts only)
+.emulator-data/
+firebase-debug.log
+firestore-debug.log
+
+test-accounts.local.txt

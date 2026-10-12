@@ -29,6 +29,8 @@ firebase emulators:exec --only firestore --project demo-barakah "cd firebase && 
 
 ## Docs
 
+- `docs/STATUS.md`: where the project stands, last test report, next
+  milestone.
 - `docs/SOCIAL_DATA_MODEL.md`: friends, invitations, chat, group challenges
   and their security rules.
 - `docs/TREE_GROWTH.md`: how the achievements tree grows and wilts.

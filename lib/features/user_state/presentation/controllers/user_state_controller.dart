@@ -10,6 +10,7 @@ import 'package:barakah40_flutter/features/prayer/domain/entities/prayer_name.da
 import 'package:barakah40_flutter/features/prayer/domain/services/prayer_day_key.dart';
 import 'package:barakah40_flutter/features/prayer/domain/services/prayer_tracking_service.dart';
 import 'package:barakah40_flutter/features/quran/domain/services/challenge_progress_service.dart';
+import 'package:barakah40_flutter/features/tree/domain/tree_growth_service.dart';
 import 'package:barakah40_flutter/features/user_state/domain/entities/prayer_settings.dart';
 import 'package:barakah40_flutter/features/user_state/domain/entities/qibla_settings.dart';
 import 'package:barakah40_flutter/features/user_state/domain/entities/reminder_settings.dart';
@@ -366,10 +367,16 @@ class UserStateController extends StateNotifier<UserStateSnapshot> {
     }
     applyPatch((s) {
       final result = ChallengeProgressService.completeDay(s, index);
-      return s.copyWith(
+      final next = s.copyWith(
         completed: result.completed,
         started: result.started,
         extra: {...s.extra, 'completedAt': result.completedAt},
+      );
+      // Legacy: completing a day calls markActivity('read').
+      return TreeGrowthService.recordActivity(
+        next,
+        TreeActivity.read,
+        DateTime.now(),
       );
     });
   }
@@ -416,7 +423,15 @@ class UserStateController extends StateNotifier<UserStateSnapshot> {
   /// exactly one, backed by `S.lastAyah`.
   void toggleLastAyahBookmark(int ayah) => applyPatch((s) {
     final next = s.lastAyah == ayah ? null : ayah;
-    return s.copyWith(lastAyah: next, clearLastAyah: next == null);
+    final updated = s.copyWith(lastAyah: next, clearLastAyah: next == null);
+    // Legacy `setBookmark`: setting (not clearing) a bookmark marks reading.
+    return next == null
+        ? updated
+        : TreeGrowthService.recordActivity(
+            updated,
+            TreeActivity.read,
+            DateTime.now(),
+          );
   });
 
   void updateReminder(
@@ -436,7 +451,18 @@ class UserStateController extends StateNotifier<UserStateSnapshot> {
     final currentLog = state.appState.prayer.log;
     final nextLog = PrayerTrackingService.togglePrayer(currentLog, today, key);
     if (identical(nextLog, currentLog)) return;
-    applyPatch((s) => s.copyWith(prayer: s.prayer.copyWith(log: nextLog)));
+    final nowDone = (nextLog[today] as Map?)?[key] == true;
+    applyPatch((s) {
+      final updated = s.copyWith(prayer: s.prayer.copyWith(log: nextLog));
+      // Legacy `markPrayer`: marking (not undoing) calls markActivity.
+      return nowDone
+          ? TreeGrowthService.recordActivity(
+              updated,
+              TreeActivity.prayer,
+              DateTime.now(),
+            )
+          : updated;
+    });
   }
 
   /// Saves a manually-entered prayer city/country and clears `timesDate` to
@@ -496,7 +522,11 @@ class UserStateController extends StateNotifier<UserStateSnapshot> {
     final next = Map<String, dynamic>.from(s.adhkarCount);
     final current = next[key] is num ? (next[key] as num).toInt() : 0;
     next[key] = (current + 1).clamp(0, max);
-    return s.copyWith(adhkarCount: next);
+    return TreeGrowthService.recordActivity(
+      s.copyWith(adhkarCount: next),
+      TreeActivity.adhkar,
+      DateTime.now(),
+    );
   });
 
   /// Sets or removes a single runtime/partial [UserAppState.extra] field

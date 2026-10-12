@@ -1,4 +1,7 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -8,6 +11,11 @@ import 'package:barakah40_flutter/app/app.dart';
 import 'package:barakah40_flutter/core/logging/app_logger.dart';
 import 'package:barakah40_flutter/features/user_state/presentation/providers/user_state_providers.dart';
 import 'package:barakah40_flutter/firebase_options.dart';
+
+/// Local testing only: `--dart-define=USE_FIREBASE_EMULATORS=true` points
+/// Auth and Firestore at the emulators started by `firebase emulators:start`
+/// (see firebase/README.md). Ignored in release builds.
+const _useEmulators = bool.fromEnvironment('USE_FIREBASE_EMULATORS');
 
 /// Boots Flutter bindings, SharedPreferences, Firebase, then the root app.
 ///
@@ -22,6 +30,11 @@ Future<void> bootstrap() async {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
+    if (_useEmulators && !kReleaseMode) {
+      await FirebaseAuth.instance.useAuthEmulator('127.0.0.1', 9099);
+      FirebaseFirestore.instance.useFirestoreEmulator('127.0.0.1', 8085);
+      AppLogger.warning('Using local Firebase emulators');
+    }
     AppLogger.info('Firebase initialized');
     runApp(
       ProviderScope(

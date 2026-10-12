@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:barakah40_flutter/app/router/app_routes.dart';
+import 'package:barakah40_flutter/app/shell/main_shell.dart';
 import 'package:barakah40_flutter/features/auth/domain/entities/app_user.dart';
 import 'package:barakah40_flutter/features/auth/presentation/providers/auth_providers.dart';
 import 'package:barakah40_flutter/features/auth/presentation/screens/forgot_password_screen.dart';
@@ -15,6 +16,10 @@ import 'package:barakah40_flutter/features/prayer/presentation/screens/prayer_ti
 import 'package:barakah40_flutter/features/quran/presentation/screens/challenge_overview_screen.dart';
 import 'package:barakah40_flutter/features/quran/presentation/screens/quran_reader_screen.dart';
 import 'package:barakah40_flutter/features/quran/presentation/screens/reciter_selection_screen.dart';
+import 'package:barakah40_flutter/features/social/presentation/screens/challenge_detail_screen.dart';
+import 'package:barakah40_flutter/features/social/presentation/screens/chat_screen.dart';
+import 'package:barakah40_flutter/features/social/presentation/screens/community_screen.dart';
+import 'package:barakah40_flutter/features/tree/presentation/screens/tree_screen.dart';
 
 /// Listenable that notifies GoRouter when auth state changes.
 class GoRouterAuthRefresh extends ChangeNotifier {
@@ -114,23 +119,47 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         name: AppRoutes.forgotPasswordName,
         builder: (context, state) => const ForgotPasswordScreen(),
       ),
-      GoRoute(
-        path: AppRoutes.home,
-        name: AppRoutes.homeName,
-        builder: (context, state) => const HomeDashboardScreen(),
-      ),
-      GoRoute(
-        path: AppRoutes.challenge,
-        name: AppRoutes.challengeName,
-        builder: (context, state) => const ChallengeOverviewScreen(),
-      ),
-      GoRoute(
-        path: AppRoutes.quran,
-        name: AppRoutes.quranName,
-        builder: (context, state) {
-          final continueReading = state.uri.queryParameters['continue'] == '1';
-          return QuranReaderScreen(continueReading: continueReading);
-        },
+      ShellRoute(
+        builder: (context, state, child) => MainShell(child: child),
+        routes: [
+          GoRoute(
+            path: AppRoutes.home,
+            name: AppRoutes.homeName,
+            builder: (context, state) => const HomeDashboardScreen(),
+          ),
+          GoRoute(
+            path: AppRoutes.challenge,
+            name: AppRoutes.challengeName,
+            builder: (context, state) => const ChallengeOverviewScreen(),
+          ),
+          GoRoute(
+            path: AppRoutes.quran,
+            name: AppRoutes.quranName,
+            builder: (context, state) {
+              final continueReading =
+                  state.uri.queryParameters['continue'] == '1';
+              return QuranReaderScreen(continueReading: continueReading);
+            },
+          ),
+          GoRoute(
+            path: AppRoutes.prayer,
+            name: AppRoutes.prayerName,
+            builder: (context, state) => const PrayerTimesScreen(),
+          ),
+          GoRoute(
+            path: AppRoutes.community,
+            name: AppRoutes.communityName,
+            builder: (context, state) => CommunityScreen(
+              initialTab:
+                  int.tryParse(state.uri.queryParameters['tab'] ?? '') ?? 0,
+            ),
+          ),
+          GoRoute(
+            path: AppRoutes.tree,
+            name: AppRoutes.treeName,
+            builder: (context, state) => const TreeScreen(),
+          ),
+        ],
       ),
       GoRoute(
         path: AppRoutes.quranReciter,
@@ -138,9 +167,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const ReciterSelectionScreen(),
       ),
       GoRoute(
-        path: AppRoutes.prayer,
-        name: AppRoutes.prayerName,
-        builder: (context, state) => const PrayerTimesScreen(),
+        path: AppRoutes.chat,
+        name: AppRoutes.chatName,
+        builder: (context, state) =>
+            ChatScreen(conversationId: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: AppRoutes.challengeDetail,
+        name: AppRoutes.challengeDetailName,
+        builder: (context, state) =>
+            ChallengeDetailScreen(challengeId: state.pathParameters['id']!),
       ),
     ],
   );

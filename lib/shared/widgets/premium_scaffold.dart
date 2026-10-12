@@ -5,9 +5,12 @@ import 'package:barakah40_flutter/app/theme/app_motion.dart';
 import 'package:barakah40_flutter/app/theme/barakah_colors.dart';
 import 'package:barakah40_flutter/core/constants/app_assets.dart';
 
-enum PremiumScaffoldStyle { plain, atmospheric, splash }
+enum PremiumScaffoldStyle { plain, atmospheric, splash, photo }
 
-/// Shared page chrome with optional hero photography (welcome only).
+/// Shared page chrome with optional legacy photography: the welcome hero
+/// ([PremiumScaffoldStyle.atmospheric]) or any page/time-of-day background
+/// ([PremiumScaffoldStyle.photo] + [backgroundImage]) under the legacy
+/// `.hb-scrim` gradient.
 class PremiumScaffold extends StatelessWidget {
   const PremiumScaffold({
     super.key,
@@ -16,7 +19,11 @@ class PremiumScaffold extends StatelessWidget {
     this.appBar,
     this.safeArea = true,
     this.resizeToAvoidBottomInset = true,
+    this.backgroundImage,
   });
+
+  /// Asset for [PremiumScaffoldStyle.photo].
+  final String? backgroundImage;
 
   final Widget body;
   final PremiumScaffoldStyle style;
@@ -32,14 +39,37 @@ class PremiumScaffold extends StatelessWidget {
       content = SafeArea(child: content);
     }
 
+    var bar = appBar;
+    if (bar != null && style == PremiumScaffoldStyle.photo) {
+      // Titles sit on the photograph: white with the legacy text shadow.
+      final theme = Theme.of(context);
+      bar = PreferredSize(
+        preferredSize: bar.preferredSize,
+        child: Theme(
+          data: theme.copyWith(
+            appBarTheme: theme.appBarTheme.copyWith(
+              foregroundColor: Colors.white,
+              titleTextStyle: theme.textTheme.headlineSmall?.copyWith(
+                color: Colors.white,
+                shadows: const [
+                  Shadow(color: Color(0xA6000000), blurRadius: 12),
+                ],
+              ),
+            ),
+          ),
+          child: bar,
+        ),
+      );
+    }
+
     return Scaffold(
       resizeToAvoidBottomInset: resizeToAvoidBottomInset,
       extendBodyBehindAppBar: style != PremiumScaffoldStyle.plain,
-      appBar: appBar,
+      appBar: bar,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          _Background(style: style, colors: colors),
+          _Background(style: style, colors: colors, image: backgroundImage),
           content,
         ],
       ),
@@ -48,10 +78,11 @@ class PremiumScaffold extends StatelessWidget {
 }
 
 class _Background extends StatelessWidget {
-  const _Background({required this.style, required this.colors});
+  const _Background({required this.style, required this.colors, this.image});
 
   final PremiumScaffoldStyle style;
   final BarakahColors colors;
+  final String? image;
 
   @override
   Widget build(BuildContext context) {
@@ -61,6 +92,42 @@ class _Background extends StatelessWidget {
       case PremiumScaffoldStyle.splash:
         return DecoratedBox(
           decoration: BoxDecoration(gradient: AppGradients.splash(colors)),
+        );
+      case PremiumScaffoldStyle.photo:
+        final asset = image;
+        if (asset == null) return ColoredBox(color: colors.bg);
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            const ColoredBox(color: Color(0xFF0B0F0C)),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 900),
+              child: Image.asset(
+                asset,
+                key: ValueKey(asset),
+                fit: BoxFit.cover,
+                width: double.infinity,
+                height: double.infinity,
+                filterQuality: FilterQuality.medium,
+                errorBuilder: (_, _, _) => const SizedBox.shrink(),
+              ),
+            ),
+            // Legacy `.hb-scrim` (final cascade value).
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  stops: [0, 0.42, 1],
+                  colors: [
+                    Color(0x8C060A10),
+                    Color(0x80060A10),
+                    Color(0xB8060A10),
+                  ],
+                ),
+              ),
+            ),
+          ],
         );
       case PremiumScaffoldStyle.atmospheric:
         return Stack(

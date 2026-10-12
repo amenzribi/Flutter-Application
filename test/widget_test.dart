@@ -1,3 +1,4 @@
+import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -5,6 +6,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:barakah40_flutter/app/app.dart';
+import 'package:barakah40_flutter/app/shell/legacy_bottom_nav.dart';
 import 'package:barakah40_flutter/app/theme/app_theme.dart';
 import 'package:barakah40_flutter/core/constants/app_constants.dart';
 import 'package:barakah40_flutter/features/auth/domain/entities/app_user.dart';
@@ -12,6 +14,8 @@ import 'package:barakah40_flutter/features/auth/presentation/providers/auth_prov
 import 'package:barakah40_flutter/features/auth/presentation/screens/login_screen.dart';
 import 'package:barakah40_flutter/features/auth/presentation/screens/register_screen.dart';
 import 'package:barakah40_flutter/features/auth/presentation/screens/welcome_screen.dart';
+import 'package:barakah40_flutter/features/social/data/firestore_social_repository.dart';
+import 'package:barakah40_flutter/features/social/presentation/providers/social_providers.dart';
 import 'package:barakah40_flutter/features/user_state/presentation/providers/user_state_providers.dart';
 import 'package:barakah40_flutter/shared/widgets/premium_fields.dart';
 import 'package:go_router/go_router.dart';
@@ -234,6 +238,10 @@ void main() {
     addTearDown(fakeRemote.dispose);
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
+    // The tree scene loops forever unless reduced motion is on.
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(disableAnimations: true);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
 
     await tester.pumpWidget(
       ProviderScope(
@@ -241,6 +249,9 @@ void main() {
           authRepositoryProvider.overrideWithValue(fake),
           sharedPreferencesProvider.overrideWithValue(prefs),
           userStateRemoteRepositoryProvider.overrideWithValue(fakeRemote),
+          socialRepositoryProvider.overrideWithValue(
+            FirestoreSocialRepository(firestore: FakeFirebaseFirestore()),
+          ),
         ],
         child: const BarakahApp(),
       ),
@@ -253,11 +264,17 @@ void main() {
     expect(find.text('سلسلة المواظبة'), findsOneWidget);
     expect(find.text('تحدّي الأربعين'), findsOneWidget);
     expect(find.text('تقدّم القرآن'), findsOneWidget);
-    expect(find.text('شجرة البركة'), findsOneWidget);
+    expect(find.text('شجرة إنجازاتي'), findsOneWidget);
+    expect(find.text('الأصدقاء والتحديات'), findsOneWidget);
+    expect(find.text('المجتمع'), findsOneWidget); // bottom nav
+    expect(tester.getSize(find.byType(LegacyBottomNav)).height, lessThan(100));
     expect(find.text('الأذكار'), findsWidgets);
     expect(find.textContaining('لم يبدأ'), findsWidgets);
     expect(find.byTooltip('تسجيل الخروج'), findsOneWidget);
 
+    // The profile card sits below the tree; bring it into view.
+    await tester.ensureVisible(find.byTooltip('تسجيل الخروج'));
+    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('تسجيل الخروج'));
     await tester.pumpAndSettle();
 

@@ -3,7 +3,7 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "test:rules": "mocha --timeout 20000 tests/firestore.rules.test.js"
+    "test:rules": "node node_modules/mocha/bin/mocha.js --timeout 20000 tests/firestore.rules.test.js"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^4.0.1",

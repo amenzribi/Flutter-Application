@@ -8,6 +8,7 @@ import 'package:barakah40_flutter/core/utils/arabic_numbers.dart';
 import 'package:barakah40_flutter/features/adhkar/domain/adhkar_models.dart';
 import 'package:barakah40_flutter/features/auth/domain/entities/app_user.dart';
 import 'package:barakah40_flutter/features/auth/presentation/providers/auth_providers.dart';
+import 'package:barakah40_flutter/features/qibla/data/qibla_geocoder.dart';
 import 'package:barakah40_flutter/features/qibla/domain/qibla_math.dart';
 import 'package:barakah40_flutter/features/qibla/presentation/qibla_screen.dart';
 import 'package:barakah40_flutter/features/tree/domain/tree_growth_service.dart';
@@ -75,6 +76,29 @@ void main() {
 
     test('from London', () {
       expect(QiblaMath.qiblaBearing(51.5074, -0.1278), closeTo(119.0, 0.5));
+    });
+
+    test('city lookup picks the country the user typed', () {
+      final results = [
+        {
+          'country': 'Lebanon',
+          'country_code': 'LB',
+          'latitude': 34.43,
+          'longitude': 35.84,
+        },
+        {
+          'country': 'Libya',
+          'country_code': 'LY',
+          'latitude': 32.89,
+          'longitude': 13.19,
+        },
+      ];
+      expect(pickGeocodeResult(results, 'Libya')?.lat, 32.89);
+      expect(pickGeocodeResult(results, 'ly')?.lat, 32.89);
+      expect(pickGeocodeResult(results, '')?.lat, 34.43);
+      expect(pickGeocodeResult(results, 'Egypt'), isNull);
+      // Arabic country names cannot match: most relevant result.
+      expect(pickGeocodeResult(results, 'ليبيا')?.lat, 34.43);
     });
 
     test('at the Kaaba the distance is zero', () {

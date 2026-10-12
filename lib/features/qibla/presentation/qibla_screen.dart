@@ -45,16 +45,20 @@ class _QiblaScreenState extends ConsumerState<QiblaScreen> {
 
   void _snack(String message) => showSocialSnack(context, message);
 
-  Future<void> _startCompass() async {
+  /// [quiet] when started automatically after choosing a location: a device
+  /// without a compass (e.g. a computer) should not get an error for a
+  /// button nobody pressed. The angle and distance still show.
+  Future<void> _startCompass({bool quiet = false}) async {
     if (_sub != null) return;
     final allowed = await requestCompassPermission();
+    if (!mounted) return;
     if (!allowed) {
-      _snack('اسمحي بالوصول لاتجاه الجهاز لتعمل البوصلة');
+      if (!quiet) _snack('اسمحي بالوصول لاتجاه الجهاز لتعمل البوصلة');
       return;
     }
     final stream = compassReadings();
     if (stream == null) {
-      _snack('البوصلة غير مدعومة على هذا الجهاز');
+      if (!quiet) _snack('البوصلة غير مدعومة على هذا الجهاز');
       return;
     }
     _sub = stream.listen((r) {
@@ -85,7 +89,7 @@ class _QiblaScreenState extends ConsumerState<QiblaScreen> {
           ),
         );
     _snack('تم تحديد موقعكِ');
-    unawaited(_startCompass());
+    unawaited(_startCompass(quiet: true));
   }
 
   Future<void> _openCity() async {
@@ -99,7 +103,7 @@ class _QiblaScreenState extends ConsumerState<QiblaScreen> {
         initialCountry: state.prayer.country,
       ),
     );
-    if (saved == true && mounted) unawaited(_startCompass());
+    if (saved == true && mounted) unawaited(_startCompass(quiet: true));
   }
 
   @override
@@ -161,7 +165,7 @@ class _QiblaScreenState extends ConsumerState<QiblaScreen> {
                   _Chip(
                     icon: Icons.explore_outlined,
                     label: _sub == null ? 'تفعيل البوصلة' : 'البوصلة تعمل',
-                    onTap: _sub == null ? _startCompass : null,
+                    onTap: _sub == null ? () => _startCompass() : null,
                   ),
                 ],
               ),
@@ -407,10 +411,19 @@ class _Chip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ActionChip(
-      avatar: Icon(icon, size: 18),
-      label: Text(label),
+    // A plain button, not a chip: screen readers announced the chips as
+    // checkboxes.
+    final colors = context.barakahColors;
+    return OutlinedButton.icon(
       onPressed: onTap,
+      icon: Icon(icon, size: 18),
+      label: Text(label),
+      style: OutlinedButton.styleFrom(
+        backgroundColor: colors.surface,
+        foregroundColor: colors.ink,
+        side: BorderSide(color: colors.line),
+        shape: const StadiumBorder(),
+      ),
     );
   }
 }
@@ -550,7 +563,7 @@ class _CitySheetState extends ConsumerState<_CitySheet> {
           ),
           const SizedBox(height: 4),
           Text(
-            'لإظهار اتجاه القبلة من مدينتكِ (المصدر: Aladhan). يُحفظ اختياركِ.',
+            'لإظهار اتجاه القبلة من مدينتكِ (المصدر: Open-Meteo). يُحفظ اختياركِ.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 12),

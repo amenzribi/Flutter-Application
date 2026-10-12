@@ -7,6 +7,19 @@ class SocialIdentity {
   final String uid;
   final String name;
   final String? email;
+
+  // Value equality: a token refresh (e.g. re-confirming the password before
+  // deleting the account) re-emits the same user, and must not republish
+  // the profile while it is being removed.
+  @override
+  bool operator ==(Object other) =>
+      other is SocialIdentity &&
+      other.uid == uid &&
+      other.name == name &&
+      other.email == email;
+
+  @override
+  int get hashCode => Object.hash(uid, name, email);
 }
 
 /// Where a message thread lives: a direct conversation or a challenge.

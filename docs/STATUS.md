@@ -7,11 +7,15 @@ Last updated: 12 October 2026. Branch: `claude/project-thread-820u55`
 
 Done and verified: sign-up, sign-in, profiles and search, friend
 invitations, private chat, group challenges with discussion, challenge
-invitations, the 40-day challenge grid, prayer tracking, the achievements
-tree, and the Firestore security rules for all of it.
+invitations, the 40-day challenge grid, Quran reader, prayer tracking, the
+achievements tree, adhkar (morning/evening), duas, qibla with tasbih and
+mosque duas, journal and daily intention, settings (name, password, sign
+out, delete account, help/about/privacy/terms/contact, restart), and the
+Firestore security rules for all of it. No screen says "قريباً" any more.
 
-Not yet migrated from the legacy app: adhkar (the home card says "قريباً"),
-tasbih, stories, push notifications.
+Not migrated from the legacy app (deliberately left for after first users):
+achievement stories, themes, English, profile photos, adhan audio,
+reminders/push notifications, backup export/import.
 
 **Blocking production use of the social features:** the live project
 `barakah-40-a5dac` still runs the old owner-only rules. Until
@@ -19,8 +23,50 @@ tasbih, stories, push notifications.
 by the owner, search, invitations, chat and challenges are refused in
 production. See `firebase/README.md`.
 
-**Next milestone:** deploy the rules, then migrate adhkar and tasbih (they
-feed the tree's points) and add push notifications for invites and messages.
+**Next milestone:** first users (checklist below), then reminders and push
+notifications for invites and messages.
+
+## Ready for first users: checklist
+
+Owner actions, in order:
+
+1. `firebase login`, then
+   `firebase deploy --only firestore:rules --project barakah-40-a5dac`.
+2. Firebase Console → Authentication → Sign-in method: Email/Password and
+   Google enabled; Authentication → Settings → Authorized domains include
+   the domain the web app is served from.
+3. Firebase Console → Authentication → Templates: check the sender name of
+   the "verify email" message (users must confirm their email before their
+   progress syncs; unconfirmed progress stays on the device).
+4. Build and publish: `flutter build web --release` (host the `build/web`
+   folder, e.g. Firebase Hosting), or `flutter build apk --release` for
+   Android testers.
+5. With two of your own accounts on the live app, run tests 1–15 of the
+   table below once.
+6. Invite a small group; ask them to report problems through "تواصل معنا".
+
+Known limits to tell testers: no notifications (keep the app open to see
+new messages), the compass needs a phone (computers show the angle only),
+and adhkar counters do not reset daily (legacy behaviour, pending decision).
+
+## Second round (adhkar, qibla, settings)
+
+| Problem | Cause | Fix |
+|---|---|---|
+| Qibla pointed the wrong way for cities chosen by name (Tripoli: 64° instead of 109°) | The legacy lookup, Aladhan `timingsByCity` metadata, now returns placeholder coordinates for every city | City coordinates from Open-Meteo geocoding; prayer times by city still come from Aladhan, checked identical |
+| Deleting an account left its email lookup entry | Re-confirming the password refreshed the user, which republished the profile mid-delete | Social identity compares by value, so a refresh is a no-op; retested: everything removed |
+| Qibla buttons announced as checkboxes to screen readers | Material chips | Plain outlined buttons |
+
+Executed in the browser against the emulators (account B, then throwaway
+accounts D and E): adhkar counting with cap and "−", Quranic adhkar text
+loading, sync to the cloud (checked in DB); qibla by city (corrected
+coordinates checked in DB); tasbih count saved (checked in DB); duas list;
+intention and journal saved; name change reaching the search profile
+(checked in DB); account deletion removing user data, profile, email lookup,
+login, and cancelling the account's pending invitation (checked in DB).
+Not executed: compass rotation (needs a phone), change password, restart
+challenge in the browser (both covered by unit tests or code review only),
+Android build.
 
 ## Fixes in this round
 
@@ -41,7 +87,7 @@ feed the tree's points) and add push notifications for invites and messages.
 | Suite | Result |
 |---|---|
 | `flutter analyze` | No issues |
-| `flutter test` | 246 passed (includes new tests for crossed and repeated invitations, challenge invite/accept/decline/cancel, owner delete clean-up, email-confirmation flag) |
+| `flutter test` | 259 passed (includes adhkar/duas content, qibla maths and city matching, tasbih, journal, restart; earlier new tests for crossed and repeated invitations, challenge invite/accept/decline/cancel, owner delete clean-up, email-confirmation flag) |
 | Firestore rules (`firebase/tests`) on the emulator | 41 passed (new: challenge invitations, duo size, progress bounds, owner clean-up, old challenges still work, crossed accept) |
 
 ## Manual run (executed)

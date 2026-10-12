@@ -34,7 +34,7 @@ async function seedProfiles(...uids) {
       await f.doc(`profiles/${uid}`).set({
         uid,
         name: uid,
-        nameLower: uid,
+        nameKey: uid,
         username: uid,
       });
     }
@@ -124,7 +124,7 @@ describe('profiles and email lookup', () => {
   const profile = (uid) => ({
     uid,
     name: 'Alice Z',
-    nameLower: 'alice z',
+    nameKey: 'alice z',
     username: 'alice.z',
     createdAt: ts(),
     updatedAt: ts(),
@@ -137,7 +137,7 @@ describe('profiles and email lookup', () => {
       db('alice').doc('profiles/alice').set({ ...profile('alice'), email: 'a@x.com' }),
     );
     await assertFails(
-      db('alice').doc('profiles/alice').set({ ...profile('alice'), nameLower: 'other' }),
+      db('alice').doc('profiles/alice').set({ ...profile('alice'), nameKey: 'x'.repeat(61) }),
     );
   });
 

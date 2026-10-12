@@ -43,8 +43,7 @@ class FirestoreSocialRepository implements SocialRepository {
     await ref.set({
       'uid': me.uid,
       'name': name.length > 60 ? name.substring(0, 60) : name,
-      'nameLower': (name.length > 60 ? name.substring(0, 60) : name)
-          .toLowerCase(),
+      'nameKey': nameSearchKey(name),
       'username': usernameOf(me.email, name),
       'updatedAt': FieldValue.serverTimestamp(),
       if (!existing.exists) 'createdAt': FieldValue.serverTimestamp(),
@@ -84,17 +83,20 @@ class FirestoreSocialRepository implements SocialRepository {
         final prefix = q.replaceFirst(RegExp('^@'), '').toLowerCase();
         if (prefix.isEmpty) return const [];
         final end = '$prefix\uf8ff';
+        final namePrefix = nameSearchKey(prefix);
+        final nameEnd = '$namePrefix\uf8ff';
         final results = await Future.wait([
           _profiles
               .where('username', isGreaterThanOrEqualTo: prefix)
               .where('username', isLessThan: end)
               .limit(searchPageSize)
               .get(),
-          _profiles
-              .where('nameLower', isGreaterThanOrEqualTo: prefix)
-              .where('nameLower', isLessThan: end)
-              .limit(searchPageSize)
-              .get(),
+          if (namePrefix.isNotEmpty)
+            _profiles
+                .where('nameKey', isGreaterThanOrEqualTo: namePrefix)
+                .where('nameKey', isLessThan: nameEnd)
+                .limit(searchPageSize)
+                .get(),
         ]);
         final seen = <String>{me};
         final out = <PublicProfile>[];

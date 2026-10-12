@@ -73,12 +73,14 @@ service cloud.firestore {
 
       allow create, update: if isMe(uid)
         && request.resource.data.keys().hasOnly([
-          'uid', 'name', 'nameLower', 'username', 'createdAt', 'updatedAt',
+          'uid', 'name', 'nameKey', 'username', 'createdAt', 'updatedAt',
           'treeStage', 'treeHealthy'
         ])
         && request.resource.data.uid == uid
         && validName(request.resource.data.name)
-        && request.resource.data.nameLower == request.resource.data.name.lower()
+        // Folded search key (lower case, Arabic letter variants unified).
+        && request.resource.data.nameKey is string
+        && request.resource.data.nameKey.size() <= 60
         && request.resource.data.username is string
         && request.resource.data.username.matches('^[a-z0-9._-]{1,40}$');
 

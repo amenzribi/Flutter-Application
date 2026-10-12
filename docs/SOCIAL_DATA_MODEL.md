@@ -28,11 +28,13 @@ Every other path is denied.
 
 ### `profiles/{uid}`
 
-`{uid, name, nameLower, username, createdAt, updatedAt, treeStage?, treeHealthy?}`
+`{uid, name, nameKey, username, createdAt, updatedAt, treeStage?, treeHealthy?}`
 
 Written on sign-in by `socialSyncProvider`. `username` is derived from the
 email's local part (`usernameOf`), lower-case `[a-z0-9._-]`. Search runs two
-prefix queries (`username` and `nameLower`, 10 results each) and merges them.
+prefix queries (`username` and `nameKey`, 10 results each) and merges them.
+`nameKey` is the name folded for search (`nameSearchKey`): lower case, Arabic
+diacritics removed, and أ/إ/آ → ا, ة → ه, ى → ي, so "امينة" finds "أمينة".
 
 ### `emailIndex/{email}`
 

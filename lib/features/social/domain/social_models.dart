@@ -16,6 +16,23 @@ String friendRequestId(String from, String to) => '${from}_$to';
 /// Lowercased email used as the `emailIndex` doc id.
 String emailKeyOf(String email) => email.trim().toLowerCase();
 
+/// Search key for names: lower case, Arabic diacritics and tatweel removed,
+/// letter variants unified (أ إ آ ٱ → ا, ة → ه, ى → ي, ؤ → و, ئ → ي), spaces
+/// collapsed. Stored as `profiles.nameKey` and applied to name queries, so
+/// "امينة" finds "أمينة".
+String nameSearchKey(String name) {
+  var s = name.trim().toLowerCase();
+  s = s.replaceAll(RegExp('[\u064B-\u065F\u0670\u0640]'), '');
+  s = s
+      .replaceAll(RegExp('[\u0623\u0625\u0622\u0671]'), '\u0627')
+      .replaceAll('\u0629', '\u0647')
+      .replaceAll('\u0649', '\u064A')
+      .replaceAll('\u0624', '\u0648')
+      .replaceAll('\u0626', '\u064A');
+  s = s.replaceAll(RegExp(r'\s+'), ' ');
+  return s.length > 60 ? s.substring(0, 60) : s;
+}
+
 /// Legacy `Social.usernameOf`: email local part, else the name without
 /// spaces, restricted to `[a-z0-9._-]`.
 String usernameOf(String? email, String? name) {

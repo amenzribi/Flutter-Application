@@ -538,7 +538,9 @@ class _SearchResultRowState extends ConsumerState<SearchResultRow> {
         busy: _busy,
         onPressed: () => _act(() async {
           final r = (ref.read(outgoingRequestsProvider).valueOrNull ?? [])
-              .firstWhere((r) => r.to == p.uid);
+              .where((r) => r.to == p.uid)
+              .firstOrNull;
+          if (r == null) return 'تغيّرت حالة الطلب، حدّثي القائمة.';
           await repo.cancelFriendRequest(me!.uid, r);
           return 'أُلغي الطلب';
         }),
@@ -549,7 +551,9 @@ class _SearchResultRowState extends ConsumerState<SearchResultRow> {
         busy: _busy,
         onPressed: () => _act(() async {
           final r = (ref.read(incomingRequestsProvider).valueOrNull ?? [])
-              .firstWhere((r) => r.from == p.uid);
+              .where((r) => r.from == p.uid)
+              .firstOrNull;
+          if (r == null) return 'تغيّرت حالة الطلب، حدّثي القائمة.';
           await repo.acceptFriendRequest(me!, r);
           return 'تمّت إضافة ${p.name}';
         }),

@@ -40,6 +40,17 @@ void main() {
       expect(await repo.searchUsers('a1', 'ami'), isEmpty);
     });
 
+    test(
+      'Arabic name search ignores hamza, ta marbuta and diacritics',
+      () async {
+        expect(nameSearchKey('  أمينةُ '), 'امينه');
+        final r = await repo.searchUsers('h1', 'امينه');
+        expect(r.map((p) => p.uid), ['a1']);
+        final r2 = await repo.searchUsers('h1', 'أمي');
+        expect(r2.map((p) => p.uid), ['a1']);
+      },
+    );
+
     test('blank query returns nothing', () async {
       expect(await repo.searchUsers('a1', '   '), isEmpty);
     });

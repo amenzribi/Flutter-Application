@@ -4,6 +4,12 @@ import 'package:go_router/go_router.dart';
 
 import 'package:barakah40_flutter/app/router/app_routes.dart';
 import 'package:barakah40_flutter/app/shell/main_shell.dart';
+import 'package:barakah40_flutter/features/adhkar/domain/adhkar_models.dart';
+import 'package:barakah40_flutter/features/adhkar/presentation/adhkar_screen.dart';
+import 'package:barakah40_flutter/features/adhkar/presentation/duas_screen.dart';
+import 'package:barakah40_flutter/features/qibla/presentation/qibla_screen.dart';
+import 'package:barakah40_flutter/features/settings/presentation/journal_screen.dart';
+import 'package:barakah40_flutter/features/settings/presentation/settings_screen.dart';
 import 'package:barakah40_flutter/features/auth/domain/entities/app_user.dart';
 import 'package:barakah40_flutter/features/auth/presentation/providers/auth_providers.dart';
 import 'package:barakah40_flutter/features/auth/presentation/screens/forgot_password_screen.dart';
@@ -158,6 +164,35 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             path: AppRoutes.tree,
             name: AppRoutes.treeName,
             builder: (context, state) => const TreeScreen(),
+          ),
+          GoRoute(
+            path: AppRoutes.adhkar,
+            name: AppRoutes.adhkarName,
+            builder: (context, state) => AdhkarScreen(
+              initial: state.uri.queryParameters['s'] == 'evening'
+                  ? AdhkarSession.evening
+                  : null,
+            ),
+          ),
+          GoRoute(
+            path: AppRoutes.duas,
+            name: AppRoutes.duasName,
+            builder: (context, state) => const DuasScreen(),
+          ),
+          GoRoute(
+            path: AppRoutes.qibla,
+            name: AppRoutes.qiblaName,
+            builder: (context, state) => const QiblaScreen(),
+          ),
+          GoRoute(
+            path: AppRoutes.settings,
+            name: AppRoutes.settingsName,
+            builder: (context, state) => const SettingsScreen(),
+          ),
+          GoRoute(
+            path: AppRoutes.journal,
+            name: AppRoutes.journalName,
+            builder: (context, state) => const JournalScreen(),
           ),
         ],
       ),

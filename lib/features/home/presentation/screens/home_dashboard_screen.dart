@@ -73,17 +73,6 @@ class _HomeBody extends StatelessWidget {
   final HomeDashboardViewModel model;
   final DayPart period;
 
-  void _showComingSoon(BuildContext context, String feature) {
-    final colors = context.barakahColors;
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('«$feature» قريباً — لم تبدأ هجرة هذه الميزة بعد.'),
-        backgroundColor: colors.ink,
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final progress = model.progress;
@@ -120,6 +109,24 @@ class _HomeBody extends StatelessWidget {
                       onTap: () => context.go(AppRoutes.quran),
                     ),
                     QuickCardSpec(
+                      title: 'الأذكار',
+                      subtitle: 'الصباح والمساء',
+                      icon: Icons.auto_awesome_outlined,
+                      onTap: () => context.push(AppRoutes.adhkar),
+                    ),
+                    QuickCardSpec(
+                      title: 'أدعية مأثورة',
+                      subtitle: 'من القرآن والسنّة',
+                      icon: Icons.volunteer_activism_outlined,
+                      onTap: () => context.push(AppRoutes.duas),
+                    ),
+                    QuickCardSpec(
+                      title: 'القبلة والمسبحة',
+                      subtitle: 'البوصلة وعدّاد التسبيح',
+                      icon: Icons.explore_outlined,
+                      onTap: () => context.push(AppRoutes.qibla),
+                    ),
+                    QuickCardSpec(
                       title: 'الصلاة',
                       subtitle: 'المواقيت والمتابعة',
                       icon: Icons.mosque_outlined,
@@ -136,6 +143,18 @@ class _HomeBody extends StatelessWidget {
                       subtitle: 'تحدَّوا معاً',
                       icon: Icons.people_alt_outlined,
                       onTap: () => context.go(AppRoutes.community),
+                    ),
+                    QuickCardSpec(
+                      title: 'دفتر المشاعر',
+                      subtitle: 'نيّتي وخواطري',
+                      icon: Icons.edit_note_rounded,
+                      onTap: () => context.push(AppRoutes.journal),
+                    ),
+                    QuickCardSpec(
+                      title: 'الإعدادات',
+                      subtitle: 'الحساب والخصوصية',
+                      icon: Icons.settings_outlined,
+                      onTap: () => context.push(AppRoutes.settings),
                     ),
                   ],
                 ),
@@ -159,7 +178,7 @@ class _HomeBody extends StatelessWidget {
                 const SizedBox(height: AppSpacing.md),
                 _AdhkarCard(
                   progress: progress,
-                  onTap: () => _showComingSoon(context, 'الأذكار'),
+                  onTap: () => context.push(AppRoutes.adhkar),
                 ),
               ],
             ),
@@ -476,7 +495,7 @@ class _AdhkarCard extends StatelessWidget {
       icon: Icons.auto_awesome_outlined,
       onTap: onTap,
       isEmpty: !progress.hasAdhkar,
-      emptyMessage: 'أذكار الصباح والمساء ستظهر حالتها هنا بعد التفعيل.',
+      emptyMessage: 'افتحي أذكار الصباح والمساء وابدئي العدّ.',
       child: progress.hasAdhkar
           ? Text(
               'صباح: $morning  ·  مساء: $evening',

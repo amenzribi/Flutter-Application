@@ -579,6 +579,35 @@ class FirestoreSocialRepository implements SocialRepository {
       });
 
   @override
+  Future<void> removeMySocialData(SocialIdentity me) => _guard(() async {
+    final outgoing = await watchOutgoingRequests(me.uid).first;
+    for (final r in outgoing) {
+      await cancelFriendRequest(me.uid, r);
+    }
+    final incoming = await watchIncomingRequests(me.uid).first;
+    for (final r in incoming) {
+      await declineFriendRequest(me.uid, r);
+    }
+    final invites = await watchChallengeInvites(me.uid).first;
+    for (final c in invites) {
+      await declineChallengeInvite(me.uid, c.id);
+    }
+    final challenges = await watchChallenges(me.uid).first;
+    for (final c in challenges) {
+      await leaveChallenge(me.uid, c);
+    }
+    final friends = await watchFriends(me.uid).first;
+    for (final f in friends) {
+      await _friendships.doc(f.id).delete();
+    }
+    final email = me.email;
+    if (email != null && email.trim().isNotEmpty) {
+      await _db.collection('emailIndex').doc(emailKeyOf(email)).delete();
+    }
+    await _profiles.doc(me.uid).delete();
+  });
+
+  @override
   Future<void> updateMyChallengeProgress(
     SocialIdentity me,
     String challengeId,

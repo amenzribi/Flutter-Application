@@ -89,6 +89,31 @@ class FakeAuthRepository implements AuthRepository {
   Future<AppUser?> reloadUser() async => _user;
 
   @override
+  Future<void> updateDisplayName(String name) => _guard(() async {
+    final u = _user;
+    if (u != null) {
+      emit(AppUser(uid: u.uid, email: u.email, displayName: name.trim()));
+    }
+  });
+
+  @override
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) => _guard(() async {});
+
+  @override
+  Future<void> reauthenticate({String? password}) => _guard(() async {});
+
+  int deleteCalls = 0;
+
+  @override
+  Future<void> deleteAccount() => _guard(() async {
+    deleteCalls++;
+    emit(null);
+  });
+
+  @override
   Future<AppUser> signInWithGoogle() {
     return _guard(() async {
       googleCalls++;

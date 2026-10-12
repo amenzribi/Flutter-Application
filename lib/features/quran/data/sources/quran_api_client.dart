@@ -60,6 +60,38 @@ class QuranApiClient {
     throw const QuranTextUnavailableException('Quran text sources unavailable');
   }
 
+  /// Legacy `fetchSurahText(num)`: any surah from the same three sources, in
+  /// the same order (used for the Quranic adhkar: 112, 113, 114).
+  Future<List<Ayah>> fetchSurah(int number) async {
+    final sources = <(String, List<Ayah>? Function(Map<String, dynamic>))>[
+      (
+        'https://api.alquran.cloud/v1/surah/$number/quran-uthmani',
+        parseAlquranCloud,
+      ),
+      (
+        'https://api.quran.com/api/v4/quran/verses/uthmani?chapter_number=$number',
+        parseQuranCom,
+      ),
+      (
+        'https://cdn.jsdelivr.net/npm/quran-json@3.1.2/dist/chapters/ar/$number.json',
+        parseJsDelivr,
+      ),
+    ];
+    for (final (url, parse) in sources) {
+      try {
+        final response = await _httpClient.get(Uri.parse(url)).timeout(timeout);
+        if (response.statusCode != 200) continue;
+        final json = jsonDecode(response.body);
+        if (json is! Map) continue;
+        final ayahs = parse(Map<String, dynamic>.from(json));
+        if (ayahs != null && ayahs.isNotEmpty) return ayahs;
+      } catch (_) {
+        // Next source.
+      }
+    }
+    throw QuranTextUnavailableException('Surah $number unavailable');
+  }
+
   Future<List<Ayah>?> _fetchAlquranCloud() async {
     final response = await _httpClient
         .get(Uri.parse(alquranCloudUrl))

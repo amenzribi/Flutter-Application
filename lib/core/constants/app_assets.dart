@@ -9,6 +9,9 @@ abstract final class AppAssets {
   static const pageQuran = 'assets/images/pg/p_quran.webp';
   static const pageChallenge = 'assets/images/pg/p_chall.webp';
   static const pageChallengeDetail = 'assets/images/pg/p_chaldetail.webp';
+  static const pageAdhkar = 'assets/images/pg/p_adhkar.webp';
+  static const pageDuas = 'assets/images/pg/p_duas.webp';
+  static const pageQibla = 'assets/images/pg/p_qibla.webp';
 
   /// Tree stage images, `index` 0..19 (legacy `grow{n}` / `wilt{n}`).
   static String treeGrow(int index) =>

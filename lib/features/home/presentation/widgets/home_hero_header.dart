@@ -166,9 +166,9 @@ class _VerifyEmailNoticeState extends ConsumerState<_VerifyEmailNotice> {
         children: [
           Text(
             'أكّدي بريدكِ لتفعيل المزامنة. حتى ذلك الحين يُحفظ تقدّمكِ على هذا الجهاز فقط.',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: colors.ink,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: colors.ink),
           ),
           const SizedBox(height: 8),
           Wrap(

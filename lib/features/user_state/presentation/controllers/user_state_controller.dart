@@ -541,6 +541,92 @@ class UserStateController extends StateNotifier<UserStateSnapshot> {
     );
   });
 
+  /// Legacy "إعادة التحدّي" (`openRestart`): clears all progress, points,
+  /// tree and achievements, and keeps the settings (theme, Quran font size,
+  /// reciter, reminders, name, prayer city without its log, qibla, language).
+  void restartChallenge() => applyPatch((s) {
+    final now = DateTime.now();
+    final extra = Map<String, dynamic>.from(s.extra)
+      ..remove('stats')
+      ..remove('activity')
+      ..remove('season')
+      ..['completedAt'] = <String, dynamic>{}
+      ..['tree'] = {
+        'shownStage': 0,
+        'stageDay': PrayerDayKey.dayKey(now),
+        'grownToday': 0,
+        'vitality': 1,
+        'lastActive': now.millisecondsSinceEpoch,
+        'createdAt': now.millisecondsSinceEpoch,
+      };
+    return UserAppState.defaults().copyWith(
+      palette: s.palette,
+      qscale: s.qscale,
+      reciter: s.reciter,
+      reminder: s.reminder,
+      prayer: s.prayer.copyWith(log: const {}, times: const {}, timesDate: ''),
+      qibla: s.qibla,
+      lang: s.lang,
+      guest: s.guest,
+      seen: true,
+      started: now.millisecondsSinceEpoch,
+      extra: extra,
+    );
+  });
+
+  /// Legacy `todayKey()` used by the intention map: `2026-10-12` style but
+  /// without zero padding (`2026-1-5`).
+  static String intentionKey(DateTime d) => '${d.year}-${d.month}-${d.day}';
+
+  /// Legacy "نيّتي اليوم": `S.intention[todayKey()] = text`.
+  void setIntentionToday(String text) => applyPatch((s) {
+    final next = Map<String, dynamic>.from(s.intention);
+    next[intentionKey(DateTime.now())] = text.trim();
+    return s.copyWith(intention: next);
+  });
+
+  /// Legacy "دفتر المشاعر": appends `{date: '١٢/١٠/٢٠٢٦', text}`.
+  void addJournalEntry(String text, String dateLabel) {
+    final body = text.trim();
+    if (body.isEmpty) return;
+    applyPatch(
+      (s) => s.copyWith(
+        journal: [
+          ...s.journal,
+          {'date': dateLabel, 'text': body},
+        ],
+      ),
+    );
+  }
+
+  /// Legacy adhkar "−" button: one down, never below 0, no activity.
+  void decrementAdhkar(String key) {
+    final v = state.appState.adhkarCount[key];
+    final current = v is num ? v.toInt() : 0;
+    if (current <= 0) return;
+    applyPatch((s) {
+      final next = Map<String, dynamic>.from(s.adhkarCount);
+      next[key] = current - 1;
+      return s.copyWith(adhkarCount: next);
+    });
+  }
+
+  /// Legacy `tbTap`: one more tasbih, recorded as today's activity.
+  void tapTasbeeh() => applyPatch(
+    (s) => TreeGrowthService.recordActivity(
+      s.copyWith(tasbeeh: s.tasbeeh.copyWith(count: s.tasbeeh.count + 1)),
+      TreeActivity.tasbih,
+      DateTime.now(),
+    ),
+  );
+
+  /// Legacy tasbih target buttons (0 = open count).
+  void setTasbeehTarget(int target) =>
+      updateTasbeeh((t) => t.copyWith(target: target));
+
+  /// Legacy "تصفير العدّاد".
+  void resetTasbeeh() => updateTasbeeh((t) => t.copyWith(count: 0));
+
   /// Sets or removes a single runtime/partial [UserAppState.extra] field
   /// (e.g. `tree`) without disturbing confirmed fields or other extras.
   void updateExtra(String key, Object? value) =>

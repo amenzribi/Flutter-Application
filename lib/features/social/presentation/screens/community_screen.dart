@@ -228,7 +228,10 @@ class _ChallengesPanel extends ConsumerWidget {
         ),
         const SizedBox(height: 14),
         if (invites.isNotEmpty) ...[
-          Text('دعوات إلى تحديات', style: Theme.of(context).textTheme.titleSmall),
+          Text(
+            'دعوات إلى تحديات',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
           const SizedBox(height: 8),
           for (final c in invites) _ChallengeInviteRow(challenge: c, me: me),
           const SizedBox(height: 10),

@@ -99,6 +99,13 @@ abstract class SocialRepository {
   /// A member leaves; the owner leaving deletes the challenge, its progress
   /// rows and its discussion.
   Future<void> leaveChallenge(String me, GroupChallenge challenge);
+
+  /// Before an account is deleted: closes my pending invitations, ends my
+  /// friendships, leaves (or, as owner, deletes) my challenges, declines
+  /// challenge invitations and removes my public profile and email lookup.
+  /// Messages already sent stay with their recipients (they are immutable).
+  Future<void> removeMySocialData(SocialIdentity me);
+
   Future<void> updateMyChallengeProgress(
     SocialIdentity me,
     String challengeId,

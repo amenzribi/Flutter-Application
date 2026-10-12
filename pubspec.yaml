@@ -25,6 +25,7 @@ dependencies:
   http: ^1.6.0
   just_audio: ^0.10.6
   geolocator: ^14.0.3
+  flutter_compass: ^0.8.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -39,6 +40,7 @@ flutter:
     - assets/images/bg/
     - assets/images/pg/
     - assets/images/tree/
+    - assets/data/
   fonts:
     - family: Tajawal
       fonts:

@@ -13,6 +13,11 @@ abstract final class AppRoutes {
   static const chat = '/community/chat/:id';
   static const challengeDetail = '/community/challenge/:id';
   static const tree = '/tree';
+  static const adhkar = '/adhkar';
+  static const duas = '/duas';
+  static const qibla = '/qibla';
+  static const settings = '/settings';
+  static const journal = '/journal';
 
   static String chatPath(String id) => '/community/chat/$id';
   static String challengeDetailPath(String id) => '/community/challenge/$id';
@@ -31,6 +36,11 @@ abstract final class AppRoutes {
   static const chatName = 'chat';
   static const challengeDetailName = 'challenge-detail';
   static const treeName = 'tree';
+  static const adhkarName = 'adhkar';
+  static const duasName = 'duas';
+  static const qiblaName = 'qibla';
+  static const settingsName = 'settings';
+  static const journalName = 'journal';
 
   static const publicLocations = <String>{
     splash,

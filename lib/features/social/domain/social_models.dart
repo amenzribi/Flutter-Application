@@ -239,7 +239,8 @@ class Conversation {
     final unreadRaw = data['unread'];
     return Conversation(
       id: id,
-      members: _stringList(data['members']),
+      // Web-app conversations use `users` until upgraded.
+      members: _stringList(data['members'] ?? data['users']),
       names: _stringMap(data['names']),
       lastMessage: LastMessage.fromMap(data['lastMessage']),
       updatedAt: _toDate(data['updatedAt']),
@@ -284,7 +285,9 @@ class ChatMessage {
   }) {
     return ChatMessage(
       id: id,
-      senderId: data['senderId'] as String? ?? '',
+      // Web-app messages use `senderUid`.
+      senderId:
+          data['senderId'] as String? ?? data['senderUid'] as String? ?? '',
       senderName: data['senderName'] as String? ?? '',
       text: data['text'] as String? ?? '',
       createdAt: _toDate(data['createdAt']),

@@ -225,7 +225,13 @@ service cloud.firestore {
         return get(docPath('conversations', cid)).data;
       }
 
-      allow get: if signedIn() && (resource == null || me() in resource.data.members);
+      // Conversations from the original web app list their people in
+      // `users` instead of `members` until the app upgrades them.
+      function membersOf(d) {
+        return d.get('members', d.get('users', []));
+      }
+
+      allow get: if signedIn() && (resource == null || me() in membersOf(resource.data));
       allow list: if signedIn() && me() in resource.data.members;
 
       allow create: if signedIn()
@@ -241,13 +247,33 @@ service cloud.firestore {
         && exists(docPath('friendships', cid));
 
       allow update: if signedIn()
-        && me() in resource.data.members
-        && onlyChanged(['lastMessage', 'updatedAt', 'unread', 'names']);
+        && (
+          (
+            'members' in resource.data
+            && me() in resource.data.members
+            && onlyChanged(['lastMessage', 'updatedAt', 'unread', 'names'])
+          )
+          ||
+          // Upgrade of a web-app conversation: same two people, now in
+          // `members`, between friends.
+          (
+            !('members' in resource.data)
+            && me() in resource.data.users
+            && request.resource.data.type == 'direct'
+            && request.resource.data.members is list
+            && request.resource.data.members.size() == 2
+            && request.resource.data.members[0] < request.resource.data.members[1]
+            && cid == request.resource.data.members[0] + '_' + request.resource.data.members[1]
+            && request.resource.data.members.toSet() == resource.data.users.toSet()
+            && exists(docPath('friendships', cid))
+            && onlyChanged(['type', 'members', 'names', 'lastMessage', 'updatedAt', 'unread'])
+          )
+        );
 
       allow delete: if false;
 
       match /messages/{mid} {
-        allow read: if signedIn() && me() in conv().members;
+        allow read: if signedIn() && me() in membersOf(conv());
 
         allow create: if signedIn()
           && me() in conv().members

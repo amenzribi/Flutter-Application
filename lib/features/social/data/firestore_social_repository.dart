@@ -294,8 +294,19 @@ class FirestoreSocialRepository implements SocialRepository {
     final id = socialPairId(me.uid, friendUid);
     final ref = _conversations.doc(id);
     final existing = await ref.get();
-    if (existing.exists) return id;
     final members = [me.uid, friendUid]..sort();
+    final data = existing.data();
+    if (data != null) {
+      if (!data.containsKey('members')) {
+        await ref.update(
+          _upgradeWebConversation(data, members, {
+            me.uid: me.name,
+            friendUid: friendName,
+          }),
+        );
+      }
+      return id;
+    }
     await ref.set({
       'type': 'direct',
       'members': members,
@@ -307,6 +318,33 @@ class FirestoreSocialRepository implements SocialRepository {
     });
     return id;
   });
+
+  /// Conversations started in the original web app keep their people in
+  /// `users`, a plain-text `lastMessage` and millisecond times. Adds the
+  /// fields this app reads; the old fields and messages stay as they are.
+  static Map<String, Object?> _upgradeWebConversation(
+    Map<String, dynamic> data,
+    List<String> members,
+    Map<String, String> names,
+  ) {
+    final legacyText = data['lastMessage'];
+    final legacyAt = data['lastMessageAt'];
+    return {
+      'type': 'direct',
+      'members': members,
+      'names': names,
+      'updatedAt': FieldValue.serverTimestamp(),
+      'lastMessage': legacyText is String
+          ? {
+              'text': legacyText,
+              'senderId': data['lastSenderUid'] as String? ?? '',
+              'sentAt': legacyAt is int
+                  ? Timestamp.fromMillisecondsSinceEpoch(legacyAt)
+                  : FieldValue.serverTimestamp(),
+            }
+          : legacyText,
+    };
+  }
 
   @override
   Stream<List<Conversation>> watchConversations(String me) => _conversations

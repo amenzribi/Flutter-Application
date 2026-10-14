@@ -370,6 +370,51 @@ describe('direct conversations', () => {
     );
     await assertFails(db('bob').doc(`conversations/${cid}`).update({ members: ['bob', 'carol'] }));
   });
+
+  it('a web-app conversation (users, senderUid) is readable and upgradable by its friends only', async () => {
+    const [x, y] = ['alice', 'bob'].sort();
+    await seed(async (f) => {
+      await f.doc(`conversations/${cid}`).set({
+        users: [x, y],
+        lastMessage: 'how are you',
+        lastMessageAt: 1787401831698,
+        lastSenderUid: 'bob',
+        createdAt: 1787401819128,
+        updatedAt: 1787401831698,
+        unread: { [x]: 0, [y]: 1 },
+      });
+      await f.doc(`conversations/${cid}/messages/m1`).set({
+        senderUid: 'bob', text: 'how are you', type: 'text', createdAt: 1787401831698,
+      });
+    });
+    await makeFriends('alice', 'bob');
+    await assertSucceeds(db('alice').doc(`conversations/${cid}`).get());
+    await assertSucceeds(db('alice').collection(`conversations/${cid}/messages`).orderBy('createdAt', 'desc').limit(100).get());
+    await assertFails(db('carol').doc(`conversations/${cid}`).get());
+    await assertFails(db('carol').collection(`conversations/${cid}/messages`).get());
+
+    const upgrade = (members) => ({
+      type: 'direct',
+      members,
+      names: { alice: 'alice', bob: 'bob' },
+      updatedAt: ts(),
+      lastMessage: { text: 'how are you', senderId: 'bob', sentAt: firebase.firestore.Timestamp.fromMillis(1787401831698) },
+    });
+    await assertFails(db('carol').doc(`conversations/${cid}`).update(upgrade([x, y])));
+    await assertFails(db('alice').doc(`conversations/${cid}`).update(upgrade(['alice', 'carol'])));
+    await assertFails(db('alice').doc(`conversations/${cid}`).update({ ...upgrade([x, y]), users: ['alice', 'carol'] }));
+    await assertSucceeds(db('alice').doc(`conversations/${cid}`).update(upgrade([x, y])));
+
+    await assertSucceeds(db('alice').collection('conversations').where('members', 'array-contains', 'alice').get());
+    await assertSucceeds(db('bob').collection(`conversations/${cid}/messages`).add(msg('bob')));
+    await assertSucceeds(db('bob').doc(`conversations/${cid}`).update({ 'unread.alice': firebase.firestore.FieldValue.increment(1), updatedAt: ts() }));
+  });
+
+  it('a web-app conversation cannot be upgraded between non-friends', async () => {
+    const [x, y] = ['alice', 'bob'].sort();
+    await seed((f) => f.doc(`conversations/${cid}`).set({ users: [x, y], lastMessage: 'hi' }));
+    await assertFails(db('alice').doc(`conversations/${cid}`).update({ type: 'direct', members: [x, y], names: {}, updatedAt: ts() }));
+  });
 });
 
 describe('challenges and group discussion', () => {

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:barakah40_flutter/app/shell/legacy_bottom_nav.dart';
+import 'package:barakah40_flutter/features/prayer/presentation/providers/adhan_alert_provider.dart';
 import 'package:barakah40_flutter/features/social/presentation/providers/social_providers.dart';
 
 /// Signed-in shell: the page above the legacy bottom navigation. Also keeps
@@ -15,6 +16,7 @@ class MainShell extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     ref.watch(socialSyncProvider);
+    ref.watch(adhanAlertProvider);
     return Scaffold(
       body: child,
       bottomNavigationBar: LegacyBottomNav(

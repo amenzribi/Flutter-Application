@@ -14,14 +14,17 @@ abstract final class PrayerStreakService {
   /// yet — legacy never breaks the streak just because today is still in
   /// progress).
   static int currentStreak(Map<String, dynamic> log, {DateTime? now}) {
-    var day = now ?? DateTime.now();
+    // Calendar days, not 24-hour steps: a daylight-saving change makes one
+    // day 23 or 25 hours long.
+    final start = now ?? DateTime.now();
+    var day = DateTime(start.year, start.month, start.day);
     if (!isFull(_recordFor(log, day))) {
-      day = day.subtract(const Duration(days: 1));
+      day = DateTime(day.year, day.month, day.day - 1);
     }
     var streak = 0;
     while (isFull(_recordFor(log, day))) {
       streak++;
-      day = day.subtract(const Duration(days: 1));
+      day = DateTime(day.year, day.month, day.day - 1);
     }
     return streak;
   }
@@ -42,7 +45,7 @@ abstract final class PrayerStreakService {
     for (final key in fullDays) {
       final current = _parseDayKey(key);
       if (current == null) continue;
-      if (previous != null && current.difference(previous).inDays == 1) {
+      if (previous != null && _isNextDay(previous, current)) {
         run++;
       } else {
         run = 1;
@@ -52,6 +55,16 @@ abstract final class PrayerStreakService {
     }
     return best;
   }
+
+  /// [b] is the calendar day after [a] (UTC dates, so daylight saving
+  /// cannot shorten the gap to 23 hours).
+  static bool _isNextDay(DateTime a, DateTime b) =>
+      DateTime.utc(
+        b.year,
+        b.month,
+        b.day,
+      ).difference(DateTime.utc(a.year, a.month, a.day)).inDays ==
+      1;
 
   static Map<String, dynamic> _recordFor(
     Map<String, dynamic> log,

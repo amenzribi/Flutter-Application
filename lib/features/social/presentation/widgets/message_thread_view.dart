@@ -216,7 +216,7 @@ class _DaySeparator extends StatelessWidget {
     } else if (d.year == now.year && d.month == now.month && d.day == now.day) {
       label = 'اليوم';
     } else {
-      final y = now.subtract(const Duration(days: 1));
+      final y = DateTime(now.year, now.month, now.day - 1);
       label = (d.year == y.year && d.month == y.month && d.day == y.day)
           ? 'أمس'
           : DateFormat('d MMMM y', 'ar').format(d);

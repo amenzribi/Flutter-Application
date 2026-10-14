@@ -548,6 +548,77 @@ void defineChecks() {
     );
   });
 
+  test('offline send: shown as pending, delivered when back online', () async {
+    final id = await a.repo.openDirectConversation(a.me, b.uid, b.me.name);
+    final thread = ThreadRef.direct(id);
+    final text = 'رسالة دون اتصال $run';
+    await a.db.disableNetwork();
+    // The send cannot complete while offline; the message is queued locally.
+    final sending = a.repo.sendMessage(a.me, thread, text);
+    final queued = await eventually(
+      a.repo.watchMessages(thread),
+      (l) => l.any((m) => m.text == text),
+    );
+    expect(queued.firstWhere((m) => m.text == text).pending, isTrue);
+    await a.db.enableNetwork();
+    await sending.timeout(const Duration(seconds: 30));
+    await eventually(
+      a.repo.watchMessages(thread),
+      (l) => l.any((m) => m.text == text && !m.pending),
+    );
+    await eventually(
+      b.repo.watchMessages(thread),
+      (l) => l.any((m) => m.text == text),
+    );
+  });
+
+  test(
+    'Google account: signs in, gets a profile, no email confirmation gate',
+    () async {
+      final app = await Firebase.initializeApp(
+        name: 'e2e-google-$run',
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+      final auth = FirebaseAuth.instanceFor(app: app);
+      await auth.useAuthEmulator('127.0.0.1', 9099);
+      final db = FirebaseFirestore.instanceFor(app: app);
+      db.useFirestoreEmulator('127.0.0.1', 8085);
+      // The Auth emulator accepts an unsigned Google ID token: it stands in for
+      // the Google account chooser.
+      final email = 'e2e.$run.google@barakah.test';
+      final token = jsonEncode({
+        'sub': 'google-$run',
+        'email': email,
+        'email_verified': true,
+        'name': 'اختبار جوجل',
+      });
+      final cred = await auth.signInWithCredential(
+        GoogleAuthProvider.credential(idToken: token),
+      );
+      final user = cred.user!;
+      expect(
+        user.providerData.map((p) => p.providerId),
+        contains('google.com'),
+      );
+      expect(user.emailVerified, isTrue);
+      final me = SocialIdentity(
+        uid: user.uid,
+        name: 'اختبار جوجل',
+        email: email,
+      );
+      final repo = FirestoreSocialRepository(firestore: db);
+      await repo.publishProfile(me);
+      final found = await a.repo.searchUsers(a.uid, email);
+      expect(found.map((p) => p.uid), [user.uid]);
+      // A Google account syncs progress straight away (no email gate).
+      await db.doc('users/${user.uid}').set({
+        'state': {'completed': List.filled(40, false)},
+        'updated': 1,
+      }, SetOptions(merge: true));
+      await user.delete();
+    },
+  );
+
   test('account deletion removes profile, email lookup, friendships and '
       'cancels open invitations', () async {
     final d = await Session.create('d', 'اختبار حذف $run');

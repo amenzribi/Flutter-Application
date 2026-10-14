@@ -483,7 +483,17 @@ class UserStateController extends StateNotifier<UserStateSnapshot> {
   void setPrayerCity({required String city, required String country}) {
     applyPatch(
       (s) => s.copyWith(
-        prayer: s.prayer.copyWith(city: city, country: country, timesDate: ''),
+        prayer: s.prayer.copyWith(
+          city: city,
+          country: country,
+          timesDate: '',
+          // A city chosen by hand replaces earlier GPS coordinates, which
+          // would otherwise keep taking precedence on later days.
+          extra: Map<String, dynamic>.from(s.prayer.extra)
+            ..remove('lat')
+            ..remove('lng')
+            ..remove('tz'),
+        ),
       ),
     );
   }
@@ -511,6 +521,15 @@ class UserStateController extends StateNotifier<UserStateSnapshot> {
       if (lat != null) extra['lat'] = lat;
       if (lng != null) extra['lng'] = lng;
       if (tz != null) extra['tz'] = tz;
+      // Legacy `locatePrayer`: the first GPS fix also gives the qibla a
+      // location when none was chosen yet.
+      final qibla = lat != null && lng != null && s.qibla.lat == null
+          ? s.qibla.copyWith(
+              lat: lat,
+              lng: lng,
+              city: s.qibla.city.isEmpty ? 'موقعي الحالي' : s.qibla.city,
+            )
+          : s.qibla;
       return s.copyWith(
         prayer: s.prayer.copyWith(
           times: timesJson,
@@ -519,6 +538,7 @@ class UserStateController extends StateNotifier<UserStateSnapshot> {
           country: country ?? s.prayer.country,
           extra: extra,
         ),
+        qibla: qibla,
       );
     });
   }

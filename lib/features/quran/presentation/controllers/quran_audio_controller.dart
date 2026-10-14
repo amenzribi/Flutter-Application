@@ -88,8 +88,16 @@ class QuranAudioController extends StateNotifier<AudioPlaybackState> {
       );
       final url = QuranAudioUrl.buildUrl(reciter.folders[folderIndex], ayah);
       await _player.setUrl(url);
-      await _player.play();
       if (!mounted || generation != _loadGeneration) return;
+      // just_audio's play() completes only when playback stops or pauses, so
+      // it must not be awaited: the ayah is playing as soon as it starts.
+      unawaited(
+        _player.play().catchError((Object _) {
+          if (mounted && generation == _loadGeneration) {
+            unawaited(_handlePlaybackError(ayah, reciter, generation));
+          }
+        }),
+      );
       state = state.copyWith(status: AudioPlaybackStatus.playing);
       _onAudioPosChanged(ayah);
     } catch (_) {
@@ -125,8 +133,8 @@ class QuranAudioController extends StateNotifier<AudioPlaybackState> {
   /// Resumes a paused ayah, or (re)starts the current/last ayah if idle.
   Future<void> resume() async {
     if (state.isPaused) {
-      await _player.play();
-      if (!mounted) return;
+      // Not awaited: completes only when playback stops again (see above).
+      unawaited(_player.play().catchError((Object _) {}));
       state = state.copyWith(status: AudioPlaybackStatus.playing);
       return;
     }

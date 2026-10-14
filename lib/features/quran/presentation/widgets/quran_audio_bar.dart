@@ -118,13 +118,17 @@ class QuranAudioBar extends StatelessWidget {
                       ],
                     ),
                   ),
-                  TextButton.icon(
-                    onPressed: onTapReciter,
-                    icon: const Icon(Icons.record_voice_over_outlined),
-                    label: Text(
-                      reciterName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                  // Shrinks with an ellipsis on narrow phones instead of
+                  // pushing the row off screen with a long reciter name.
+                  Flexible(
+                    child: TextButton.icon(
+                      onPressed: onTapReciter,
+                      icon: const Icon(Icons.record_voice_over_outlined),
+                      label: Text(
+                        reciterName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ),
                 ],

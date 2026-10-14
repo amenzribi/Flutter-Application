@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:barakah40_flutter/core/utils/auth_error_mapper.dart';
@@ -25,6 +26,17 @@ void main() {
     );
     expect(message.contains('something-new'), isTrue);
     expect(message.toLowerCase().contains('password'), isFalse);
+  });
+
+  test('maps native Google sign-in errors', () {
+    expect(
+      AuthErrorMapper.map(PlatformException(code: 'sign_in_canceled')),
+      'أُغلقت نافذة الدخول',
+    );
+    expect(
+      AuthErrorMapper.map(PlatformException(code: 'sign_in_failed')),
+      contains('Google'),
+    );
   });
 
   test('maps non-auth errors generically', () {

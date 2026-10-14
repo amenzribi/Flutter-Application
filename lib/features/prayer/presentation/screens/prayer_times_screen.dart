@@ -240,7 +240,7 @@ class _ScheduleBody extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (nextInfo != null) ...[
-              NextPrayerCard(info: nextInfo),
+              NextPrayerCard(info: nextInfo, times: schedule.times),
               const SizedBox(height: AppSpacing.md),
             ],
             PremiumCard(

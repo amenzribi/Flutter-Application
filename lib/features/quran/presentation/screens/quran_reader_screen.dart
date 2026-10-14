@@ -72,15 +72,33 @@ class _QuranReaderScreenState extends ConsumerState<QuranReaderScreen> {
     });
   }
 
-  void _scrollToAyah(int n) {
-    final ctx = _ayahKeys[n]?.currentContext;
-    if (ctx == null) return;
-    Scrollable.ensureVisible(
-      ctx,
-      duration: const Duration(milliseconds: 400),
-      curve: Curves.easeInOut,
-      alignment: 0.15,
-    );
+  /// The list only builds verses near the screen, so a far verse has no
+  /// widget yet: jump to its estimated place first, let that frame build,
+  /// and repeat until the verse exists, then bring it into view.
+  Future<void> _scrollToAyah(int n) async {
+    for (var attempt = 0; attempt < 8; attempt++) {
+      final ctx = _ayahKeys[n]?.currentContext;
+      if (ctx != null && ctx.mounted) {
+        await Scrollable.ensureVisible(
+          ctx,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeInOut,
+          alignment: 0.15,
+        );
+        return;
+      }
+      if (!_scrollController.hasClients) return;
+      final position = _scrollController.position;
+      final fraction = n / QuranReadingPosition.totalAyahs;
+      position.jumpTo(
+        (position.maxScrollExtent * fraction).clamp(
+          0.0,
+          position.maxScrollExtent,
+        ),
+      );
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+    }
   }
 
   void _handleJump() {
@@ -124,6 +142,13 @@ class _QuranReaderScreenState extends ConsumerState<QuranReaderScreen> {
         }
       });
     });
+    // The text is often already loaded (second visit): no change event will
+    // come, so schedule the scroll to the saved verse from here as well.
+    if (asyncAyahs.hasValue && effectiveAyah != null && !_autoScrollHandled) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _scheduleAutoScroll(effectiveAyah);
+      });
+    }
 
     return PremiumScaffold(
       resizeToAvoidBottomInset: false,

@@ -35,8 +35,13 @@ Future<void> bootstrap() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
     if (_useEmulators && !kReleaseMode) {
-      await FirebaseAuth.instance.useAuthEmulator('127.0.0.1', 9099);
-      FirebaseFirestore.instance.useFirestoreEmulator('127.0.0.1', 8085);
+      // The Android emulator reaches the computer running the Firebase
+      // emulators at 10.0.2.2; everything else uses the local loopback.
+      final host = !kIsWeb && defaultTargetPlatform == TargetPlatform.android
+          ? '10.0.2.2'
+          : '127.0.0.1';
+      await FirebaseAuth.instance.useAuthEmulator(host, 9099);
+      FirebaseFirestore.instance.useFirestoreEmulator(host, 8085);
       AppLogger.warning('Using local Firebase emulators');
     }
     AppLogger.info('Firebase initialized');

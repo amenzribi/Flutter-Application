@@ -10,6 +10,8 @@ import 'package:barakah40_flutter/core/utils/auth_error_mapper.dart';
 import 'package:barakah40_flutter/features/auth/presentation/providers/auth_controller.dart';
 import 'package:barakah40_flutter/features/auth/presentation/providers/auth_providers.dart';
 import 'package:barakah40_flutter/features/home/presentation/providers/home_providers.dart';
+import 'package:barakah40_flutter/features/prayer/domain/entities/prayer_name.dart';
+import 'package:barakah40_flutter/features/prayer/presentation/providers/adhan_alert_provider.dart';
 import 'package:barakah40_flutter/features/settings/presentation/legal_texts.dart';
 import 'package:barakah40_flutter/features/social/domain/social_models.dart';
 import 'package:barakah40_flutter/features/social/presentation/providers/social_providers.dart';
@@ -108,6 +110,7 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                 ],
               ),
+              const _AdhanGroup(),
               _Group(
                 title: 'عن التطبيق',
                 children: [
@@ -394,17 +397,86 @@ class _Group extends StatelessWidget {
               ),
             ),
           ),
-          Container(
-            decoration: BoxDecoration(
-              color: colors.surface,
+          // A Material surface (not a decorated box) so tapping a row shows
+          // its ripple.
+          Material(
+            color: colors.surface,
+            shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: colors.line),
+              side: BorderSide(color: colors.line),
             ),
             clipBehavior: Clip.antiAlias,
             child: Column(children: children),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Adhan alert switch (legacy `S.reminder.prayer`) and a test button.
+class _AdhanGroup extends ConsumerWidget {
+  const _AdhanGroup();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final colors = context.barakahColors;
+    final notifier = ref.watch(adhanNotifierProvider);
+    final on = ref.watch(adhanAlertsEnabledProvider) && notifier.granted;
+    final hasPlace = ref.watch(
+      userAppStateProvider.select(
+        (s) => s.prayer.city.trim().isNotEmpty || s.prayer.extra['lat'] is num,
+      ),
+    );
+
+    void say(String text) => ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(text)));
+
+    Future<void> toggle(bool value) async {
+      final controller = ref.read(userStateControllerProvider.notifier);
+      if (!value) {
+        controller.updateReminder((r) => r.copyWith(prayer: false));
+        return;
+      }
+      final allowed = await notifier.requestPermission();
+      if (!allowed) {
+        say(
+          'اسمحي بالإشعارات لهذا الموقع من إعدادات المتصفح ثم أعيدي المحاولة',
+        );
+        return;
+      }
+      controller.updateReminder((r) => r.copyWith(enabled: true, prayer: true));
+      if (!hasPlace) say('اختاري مدينتكِ في صفحة الصلاة لتصلكِ التنبيهات');
+    }
+
+    return _Group(
+      title: 'التنبيهات',
+      children: [
+        SwitchListTile(
+          secondary: Icon(
+            Icons.notifications_active_outlined,
+            color: colors.olive,
+          ),
+          title: Text('تنبيه الأذان', style: TextStyle(color: colors.ink)),
+          subtitle: Text(
+            notifier.supported
+                ? 'إشعار عند دخول وقت كل صلاة ما دام التطبيق مفتوحًا'
+                : 'متاح حاليًا في نسخة المتصفح فقط',
+          ),
+          value: on,
+          onChanged: notifier.supported ? toggle : null,
+        ),
+        if (on)
+          _Row(
+            icon: Icons.campaign_outlined,
+            label: 'تجربة التنبيه الآن',
+            onTap: () => notifier.show(
+              title: adhanTitle(PrayerName.dhuhr),
+              body: adhanBody,
+            ),
+          ),
+      ],
     );
   }
 }

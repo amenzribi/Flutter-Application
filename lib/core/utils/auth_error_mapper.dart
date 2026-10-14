@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/services.dart';
 
 /// Maps Firebase Auth exception codes to Arabic messages used by the legacy app.
 abstract final class AuthErrorMapper {
@@ -34,6 +35,19 @@ abstract final class AuthErrorMapper {
       final code = error.code.replaceFirst('auth/', '');
       return _messages[code] ??
           'تعذّر إتمام العملية${code.isNotEmpty ? ' ($code)' : ''}';
+    }
+    // Errors from the native Google sign-in plugin (Android/iOS).
+    if (error is PlatformException) {
+      switch (error.code) {
+        case 'sign_in_canceled':
+          return _messages['popup-closed-by-user']!;
+        case 'network_error':
+          return _messages['network-request-failed']!;
+        case 'sign_in_failed':
+          // Usually ApiException 10: the app's SHA-1 fingerprint or OAuth
+          // client is missing from the Firebase project.
+          return 'الدخول بـ Google غير مُعدّ لهذا الجهاز بعد — استخدمي البريد وكلمة المرور';
+      }
     }
     return 'تعذّر إتمام العملية';
   }

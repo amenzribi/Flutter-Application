@@ -788,12 +788,14 @@ class _MosqueDua extends StatelessWidget {
             children: [
               Icon(Icons.mosque_outlined, size: 18, color: colors.olive),
               const SizedBox(width: 6),
-              Text(
-                title,
-                style: TextStyle(
-                  fontFamily: 'ReemKufi',
-                  fontSize: 15,
-                  color: colors.ink,
+              Flexible(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontFamily: 'ReemKufi',
+                    fontSize: 15,
+                    color: colors.ink,
+                  ),
                 ),
               ),
             ],

@@ -9,13 +9,18 @@ import 'package:barakah40_flutter/features/quran/data/sources/quran_api_client.d
 import 'package:barakah40_flutter/features/quran/presentation/providers/quran_providers.dart';
 import 'package:barakah40_flutter/features/user_state/presentation/providers/user_state_providers.dart';
 
+/// Reads a bundled UTF-8 text asset directly (rootBundle.loadString decodes
+/// large files on a background isolate, which buys nothing here).
+Future<String> _asset(String path) async =>
+    utf8.decode((await rootBundle.load(path)).buffer.asUint8List());
+
 final adhkarCatalogProvider = FutureProvider<AdhkarCatalog>((ref) async {
-  final raw = await rootBundle.loadString('assets/data/adhkar.json');
+  final raw = await _asset('assets/data/adhkar.json');
   return AdhkarCatalog.fromJson(jsonDecode(raw) as Map<String, dynamic>);
 });
 
 final duasProvider = FutureProvider<List<Dua>>((ref) async {
-  final raw = await rootBundle.loadString('assets/data/duas.json');
+  final raw = await _asset('assets/data/duas.json');
   return [
     for (final e in jsonDecode(raw) as List)
       Dua.fromJson(Map<String, dynamic>.from(e as Map)),

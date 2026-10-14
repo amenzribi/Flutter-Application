@@ -21,6 +21,16 @@ class FakeQuranAudioPlayer implements QuranAudioPlayer {
   String? currentUrl;
   bool disposed = false;
 
+  /// Like just_audio, [play] completes only when playback pauses, stops or
+  /// reaches the end — never right away.
+  Completer<void>? _playback;
+
+  void _endPlayback() {
+    final p = _playback;
+    _playback = null;
+    if (p != null && !p.isCompleted) p.complete();
+  }
+
   final StreamController<Duration> _positionController =
       StreamController<Duration>.broadcast();
   final StreamController<Duration?> _durationController =
@@ -48,7 +58,7 @@ class FakeQuranAudioPlayer implements QuranAudioPlayer {
   }
 
   @override
-  Future<void> play() async {
+  Future<void> play() {
     playCalls.add(currentUrl ?? '');
     _playerStateController.add(
       const QuranAudioPlayerState(
@@ -56,11 +66,14 @@ class FakeQuranAudioPlayer implements QuranAudioPlayer {
         processingState: QuranAudioProcessingState.ready,
       ),
     );
+    _playback ??= Completer<void>();
+    return _playback!.future;
   }
 
   @override
   Future<void> pause() async {
     pauseCalls.add(currentUrl ?? '');
+    _endPlayback();
     _playerStateController.add(
       const QuranAudioPlayerState(
         playing: false,
@@ -72,6 +85,7 @@ class FakeQuranAudioPlayer implements QuranAudioPlayer {
   @override
   Future<void> stop() async {
     stopCalls.add(currentUrl ?? '');
+    _endPlayback();
     _playerStateController.add(
       const QuranAudioPlayerState(
         playing: false,
@@ -82,6 +96,7 @@ class FakeQuranAudioPlayer implements QuranAudioPlayer {
 
   /// Test helper — simulates `audioEl.onended` for the currently loaded url.
   void completeCurrent() {
+    _endPlayback();
     _playerStateController.add(
       const QuranAudioPlayerState(
         playing: false,

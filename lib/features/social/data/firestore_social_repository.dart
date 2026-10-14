@@ -153,6 +153,21 @@ class FirestoreSocialRepository implements SocialRepository {
     if (target.uid == me.uid) {
       throw const SocialException('لا يمكنكِ إضافة نفسكِ.', code: 'self');
     }
+    try {
+      return await _sendOnce(me, target);
+    } on FirebaseException catch (e) {
+      // Both pressed "add" at the same instant: their request landed between
+      // our check and our write, so the rules refused ours. Look again: now
+      // we accept theirs (or find the friendship) instead of failing.
+      if (e.code != 'permission-denied') rethrow;
+      return _sendOnce(me, target);
+    }
+  });
+
+  Future<SendRequestResult> _sendOnce(
+    SocialIdentity me,
+    PublicProfile target,
+  ) async {
     final friendship = await _friendships
         .doc(socialPairId(me.uid, target.uid))
         .get();
@@ -194,7 +209,7 @@ class FirestoreSocialRepository implements SocialRepository {
       'updatedAt': FieldValue.serverTimestamp(),
     });
     return SendRequestResult.sent;
-  });
+  }
 
   @override
   Future<void> acceptFriendRequest(SocialIdentity me, FriendRequest request) =>

@@ -6,31 +6,36 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:barakah40_flutter/app/router/app_routes.dart';
-import 'package:barakah40_flutter/app/shell/app_shell.dart';
 import 'package:barakah40_flutter/app/theme/app_motion.dart';
 import 'package:barakah40_flutter/app/theme/app_spacing.dart';
 import 'package:barakah40_flutter/app/theme/barakah_colors.dart';
 import 'package:barakah40_flutter/features/home/domain/entities/home_progress.dart';
+import 'package:barakah40_flutter/features/home/domain/services/day_part.dart';
 import 'package:barakah40_flutter/features/home/presentation/providers/home_providers.dart';
 import 'package:barakah40_flutter/features/home/presentation/widgets/home_hero_header.dart';
-import 'package:barakah40_flutter/features/home/presentation/widgets/home_quick_actions.dart';
+import 'package:barakah40_flutter/features/home/presentation/widgets/legacy_quick_grid.dart';
 import 'package:barakah40_flutter/features/home/presentation/widgets/home_section_card.dart';
+import 'package:barakah40_flutter/features/tree/presentation/widgets/tree_card.dart';
 import 'package:barakah40_flutter/features/user_state/presentation/widgets/user_state_diagnostics_panel.dart';
 import 'package:barakah40_flutter/shared/widgets/premium_button.dart';
-import 'package:barakah40_flutter/shared/widgets/premium_card.dart';
 import 'package:barakah40_flutter/shared/widgets/premium_scaffold.dart';
 import 'package:barakah40_flutter/shared/widgets/responsive_content.dart';
 
-/// Premium Home Dashboard — real clock/profile + empty local progress states.
+/// Home in the legacy layout: time-of-day photograph, period greeting,
+/// the living tree, the profile/sync card, then the quick grid and the
+/// progress cards.
 class HomeDashboardScreen extends ConsumerWidget {
   const HomeDashboardScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final asyncModel = ref.watch(homeDashboardProvider);
+    final period = ref.watch(dayPeriodProvider);
 
-    return AppShell(
-      child: Stack(
+    return PremiumScaffold(
+      style: PremiumScaffoldStyle.photo,
+      backgroundImage: period.backgroundAsset,
+      body: Stack(
         children: [
           asyncModel.when(
             loading: () => const Center(child: CircularProgressIndicator()),
@@ -39,15 +44,17 @@ class HomeDashboardScreen extends ConsumerWidget {
                 padding: const EdgeInsets.all(AppSpacing.lg),
                 child: Text(
                   'تعذّر تحميل لوحة المتابعة',
-                  style: Theme.of(context).textTheme.titleMedium,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleMedium?.copyWith(color: Colors.white),
                 ),
               ),
             ),
-            data: (model) => _HomeBody(model: model),
+            data: (model) => _HomeBody(model: model, period: period),
           ),
           // Debug-only sync/state inspector — never present in release
-          // builds. Overlaid rather than wired into PremiumScaffold/AppShell
-          // to avoid touching their layout contracts.
+          // builds. Overlaid rather than wired into PremiumScaffold to avoid
+          // touching its layout contract.
           if (kDebugMode)
             const Positioned(
               right: AppSpacing.md,
@@ -61,88 +68,166 @@ class HomeDashboardScreen extends ConsumerWidget {
 }
 
 class _HomeBody extends StatelessWidget {
-  const _HomeBody({required this.model});
+  const _HomeBody({required this.model, required this.period});
 
   final HomeDashboardViewModel model;
-
-  void _showComingSoon(BuildContext context, String feature) {
-    final colors = context.barakahColors;
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('«$feature» قريباً — لم تبدأ هجرة هذه الميزة بعد.'),
-        backgroundColor: colors.ink,
-      ),
-    );
-  }
+  final DayPart period;
 
   @override
   Widget build(BuildContext context) {
     final progress = model.progress;
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return RefreshIndicator(
-          onRefresh: () async {
-            // Local store has no remote pull yet; keep gesture for future sync.
-            await Future<void>.delayed(AppMotion.fast);
-          },
-          child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
-            child: ResponsiveContent(
-              child: PageEntrance(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const SizedBox(height: AppSpacing.md),
-                    HomeHeroHeader(model: model),
-                    const SizedBox(height: AppSpacing.md),
-                    HomeQuickActions(
-                      onUnavailable: (label) => _showComingSoon(context, label),
-                      onQuran: () => context.push(AppRoutes.quran),
-                      onPrayer: () => context.push(AppRoutes.prayer),
+    return RefreshIndicator(
+      onRefresh: () async {
+        // Local store has no remote pull yet; keep gesture for future sync.
+        await Future<void>.delayed(AppMotion.fast);
+      },
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.only(bottom: AppSpacing.xxl),
+        child: ResponsiveContent(
+          child: PageEntrance(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _PeriodGreeting(period: period),
+                TreeCard(onTap: () => context.push(AppRoutes.tree)),
+                const SizedBox(height: AppSpacing.md),
+                HomeHeroHeader(model: model),
+                const SizedBox(height: AppSpacing.md),
+                _ChallengeCard(
+                  progress: progress,
+                  onTap: () => context.go(AppRoutes.challenge),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                LegacyQuickGrid(
+                  items: [
+                    QuickCardSpec(
+                      title: 'اقرئي البقرة',
+                      subtitle: 'النص وصوت القارئ',
+                      icon: Icons.menu_book_rounded,
+                      onTap: () => context.go(AppRoutes.quran),
                     ),
-                    const SizedBox(height: AppSpacing.md),
-                    _StreakCard(progress: progress),
-                    const SizedBox(height: AppSpacing.md),
-                    _ChallengeCard(
-                      progress: progress,
-                      onTap: () => context.push(AppRoutes.challenge),
+                    QuickCardSpec(
+                      title: 'الأذكار',
+                      subtitle: 'الصباح والمساء',
+                      icon: Icons.auto_awesome_outlined,
+                      onTap: () => context.push(AppRoutes.adhkar),
                     ),
-                    const SizedBox(height: AppSpacing.md),
-                    _QuranCard(
-                      progress: progress,
-                      onTap: () => context.push(AppRoutes.quran),
+                    QuickCardSpec(
+                      title: 'أدعية مأثورة',
+                      subtitle: 'من القرآن والسنّة',
+                      icon: Icons.volunteer_activism_outlined,
+                      onTap: () => context.push(AppRoutes.duas),
                     ),
-                    const SizedBox(height: AppSpacing.md),
-                    _ReadingCard(
-                      progress: progress,
-                      onContinue: () =>
-                          context.push('${AppRoutes.quran}?continue=1'),
+                    QuickCardSpec(
+                      title: 'القبلة والمسبحة',
+                      subtitle: 'البوصلة وعدّاد التسبيح',
+                      icon: Icons.explore_outlined,
+                      onTap: () => context.push(AppRoutes.qibla),
                     ),
-                    const SizedBox(height: AppSpacing.md),
-                    _PrayerCard(
-                      progress: progress,
-                      onTap: () => context.push(AppRoutes.prayer),
+                    QuickCardSpec(
+                      title: 'الصلاة',
+                      subtitle: 'المواقيت والمتابعة',
+                      icon: Icons.mosque_outlined,
+                      onTap: () => context.go(AppRoutes.prayer),
                     ),
-                    const SizedBox(height: AppSpacing.md),
-                    _AdhkarCard(
-                      progress: progress,
-                      onTap: () => _showComingSoon(context, 'الأذكار'),
+                    QuickCardSpec(
+                      title: 'الإنجازات',
+                      subtitle: 'شجرتكِ ومراحلها',
+                      icon: Icons.emoji_events_outlined,
+                      onTap: () => context.push(AppRoutes.tree),
                     ),
-                    const SizedBox(height: AppSpacing.md),
-                    _TreeCard(
-                      progress: progress,
-                      onTap: () => _showComingSoon(context, 'الحديقة'),
+                    QuickCardSpec(
+                      title: 'الأصدقاء والتحديات',
+                      subtitle: 'تحدَّوا معاً',
+                      icon: Icons.people_alt_outlined,
+                      onTap: () => context.go(AppRoutes.community),
+                    ),
+                    QuickCardSpec(
+                      title: 'دفتر المشاعر',
+                      subtitle: 'نيّتي وخواطري',
+                      icon: Icons.edit_note_rounded,
+                      onTap: () => context.push(AppRoutes.journal),
+                    ),
+                    QuickCardSpec(
+                      title: 'الإعدادات',
+                      subtitle: 'الحساب والخصوصية',
+                      icon: Icons.settings_outlined,
+                      onTap: () => context.push(AppRoutes.settings),
                     ),
                   ],
                 ),
-              ),
+                const SizedBox(height: AppSpacing.md),
+                _StreakCard(progress: progress),
+                const SizedBox(height: AppSpacing.md),
+                _QuranCard(
+                  progress: progress,
+                  onTap: () => context.go(AppRoutes.quran),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                _ReadingCard(
+                  progress: progress,
+                  onContinue: () => context.go('${AppRoutes.quran}?continue=1'),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                _PrayerCard(
+                  progress: progress,
+                  onTap: () => context.go(AppRoutes.prayer),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                _AdhkarCard(
+                  progress: progress,
+                  onTap: () => context.push(AppRoutes.adhkar),
+                ),
+              ],
             ),
           ),
-        );
-      },
+        ),
+      ),
+    );
+  }
+}
+
+/// Legacy `.home-greet`: the period name and its line over the photo.
+class _PeriodGreeting extends StatelessWidget {
+  const _PeriodGreeting({required this.period});
+
+  final DayPart period;
+
+  static const _shadow = [Shadow(color: Color(0xA6000000), blurRadius: 12)];
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      header: true,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(4, 22, 4, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              period.arabicName,
+              style: const TextStyle(
+                fontFamily: 'ReemKufi',
+                fontSize: 30,
+                height: 1.2,
+                color: Colors.white,
+                shadows: _shadow,
+              ),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              period.subtitle,
+              style: const TextStyle(
+                fontSize: 14,
+                color: Color(0xEBFFFFFF),
+                shadows: _shadow,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -410,37 +495,11 @@ class _AdhkarCard extends StatelessWidget {
       icon: Icons.auto_awesome_outlined,
       onTap: onTap,
       isEmpty: !progress.hasAdhkar,
-      emptyMessage: 'أذكار الصباح والمساء ستظهر حالتها هنا بعد التفعيل.',
+      emptyMessage: 'افتحي أذكار الصباح والمساء وابدئي العدّ.',
       child: progress.hasAdhkar
           ? Text(
               'صباح: $morning  ·  مساء: $evening',
               style: Theme.of(context).textTheme.titleMedium,
-            )
-          : null,
-    );
-  }
-}
-
-class _TreeCard extends StatelessWidget {
-  const _TreeCard({required this.progress, required this.onTap});
-  final HomeProgress progress;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return HomeSectionCard(
-      title: 'شجرة البركة',
-      icon: Icons.park_outlined,
-      heroTag: 'home-tree-card',
-      variant: PremiumCardVariant.elevated,
-      onTap: onTap,
-      isEmpty: !progress.hasTree,
-      emptyMessage:
-          'حديقتك لم تُزرع بعد. ستظهر معاينة الشجرة الحيّة هنا عند البدء.',
-      child: progress.hasTree
-          ? Text(
-              progress.treeStageLabel!,
-              style: Theme.of(context).textTheme.titleLarge,
             )
           : null,
     );

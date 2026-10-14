@@ -1,17 +1,38 @@
-# barakah40_flutter
+# Barakah 40 (Flutter)
 
-A new Flutter project.
+Flutter rebuild of the Barakah 40 web app: a 40-day Al-Baqarah reading
+challenge with prayer tracking, an achievements tree, friends, private chat
+and group challenges. Arabic, right-to-left.
 
-## Getting Started
+## Run
 
-This project is a starting point for a Flutter application.
+```
+flutter pub get
+flutter run
+```
 
-A few resources to get you started if this is your first Flutter project:
+Firebase project: `barakah-40-a5dac` (see `firebase/README.md`). To develop
+without touching it, run against the local emulators:
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+```
+firebase emulators:start --only auth,firestore --project barakah-40-a5dac
+flutter run -d chrome --dart-define=USE_FIREBASE_EMULATORS=true
+```
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Test
+
+```
+flutter analyze
+flutter test
+firebase emulators:exec --only firestore --project demo-barakah "cd firebase && npm run test:rules"
+```
+
+## Docs
+
+- `docs/STATUS.md`: where the project stands, last test report, next
+  milestone.
+- `docs/SOCIAL_DATA_MODEL.md`: friends, invitations, chat, group challenges
+  and their security rules.
+- `docs/TREE_GROWTH.md`: how the achievements tree grows and wilts.
+- `docs/DESIGN_REUSE.md`: reused design assets from the legacy app.
+- `firebase/README.md`: project ids, rules deployment, console checklist.

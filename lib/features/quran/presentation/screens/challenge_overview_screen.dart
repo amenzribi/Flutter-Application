@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:barakah40_flutter/core/constants/app_assets.dart';
 import 'package:barakah40_flutter/app/router/app_routes.dart';
 import 'package:barakah40_flutter/app/theme/app_spacing.dart';
 import 'package:barakah40_flutter/app/theme/barakah_colors.dart';
@@ -90,7 +91,10 @@ class ChallengeOverviewScreen extends ConsumerWidget {
         appState.lastAyah != null || appState.audioPos != null;
 
     return PremiumScaffold(
+      style: PremiumScaffoldStyle.photo,
+      backgroundImage: AppAssets.pageChallenge,
       appBar: AppBar(
+        foregroundColor: Colors.white,
         leading: PremiumIconButton(
           icon: Icons.arrow_back,
           tooltip: 'رجوع',

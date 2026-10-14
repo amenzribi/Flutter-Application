@@ -10,6 +10,7 @@ import 'package:barakah40_flutter/features/prayer/domain/entities/prayer_name.da
 import 'package:barakah40_flutter/features/prayer/domain/services/prayer_day_key.dart';
 import 'package:barakah40_flutter/features/prayer/domain/services/prayer_tracking_service.dart';
 import 'package:barakah40_flutter/features/quran/domain/services/challenge_progress_service.dart';
+import 'package:barakah40_flutter/features/tree/domain/tree_growth_service.dart';
 import 'package:barakah40_flutter/features/user_state/domain/entities/prayer_settings.dart';
 import 'package:barakah40_flutter/features/user_state/domain/entities/qibla_settings.dart';
 import 'package:barakah40_flutter/features/user_state/domain/entities/reminder_settings.dart';
@@ -140,6 +141,10 @@ class UserStateController extends StateNotifier<UserStateSnapshot> {
   /// newer transition started can detect it's stale and no-op.
   int _loadGeneration = 0;
 
+  /// A write was skipped because the password account's email is not yet
+  /// confirmed; retried once it is.
+  bool _heldForVerification = false;
+
   /// `null` once [dispose] has been called, so pending async work resuming
   /// after teardown (e.g. in tests) can no-op instead of throwing when it
   /// tries to touch `state`.
@@ -153,11 +158,18 @@ class UserStateController extends StateNotifier<UserStateSnapshot> {
   Future<void> _handleAuthUser(AppUser? user) async {
     if (user != null && user.uid == state.uid) {
       // Same signed-in user re-emitted (e.g. Firebase token refresh) — the
-      // session hasn't actually changed, nothing to reload.
+      // session hasn't actually changed, nothing to reload. The one change
+      // that matters: the email was just confirmed, so the progress held
+      // back on this device can now go to the cloud.
+      if (_heldForVerification && _allowsCloudWrite(user)) {
+        _heldForVerification = false;
+        await _pushNow(user: user, appState: state.appState);
+      }
       return;
     }
 
     final generation = ++_loadGeneration;
+    _heldForVerification = false;
     await _remoteSubscription?.cancel();
     _remoteSubscription = null;
     _debounceTimer?.cancel();
@@ -246,6 +258,7 @@ class UserStateController extends StateNotifier<UserStateSnapshot> {
     if (!mounted) return;
     if (!_allowsCloudWrite(user)) {
       // Legacy: skip only when `isPwUser(u) && emailVerified===false`.
+      _heldForVerification = true;
       state = state.copyWith(syncStatus: SyncStatus.offline);
       return;
     }
@@ -366,10 +379,16 @@ class UserStateController extends StateNotifier<UserStateSnapshot> {
     }
     applyPatch((s) {
       final result = ChallengeProgressService.completeDay(s, index);
-      return s.copyWith(
+      final next = s.copyWith(
         completed: result.completed,
         started: result.started,
         extra: {...s.extra, 'completedAt': result.completedAt},
+      );
+      // Legacy: completing a day calls markActivity('read').
+      return TreeGrowthService.recordActivity(
+        next,
+        TreeActivity.read,
+        DateTime.now(),
       );
     });
   }
@@ -416,7 +435,15 @@ class UserStateController extends StateNotifier<UserStateSnapshot> {
   /// exactly one, backed by `S.lastAyah`.
   void toggleLastAyahBookmark(int ayah) => applyPatch((s) {
     final next = s.lastAyah == ayah ? null : ayah;
-    return s.copyWith(lastAyah: next, clearLastAyah: next == null);
+    final updated = s.copyWith(lastAyah: next, clearLastAyah: next == null);
+    // Legacy `setBookmark`: setting (not clearing) a bookmark marks reading.
+    return next == null
+        ? updated
+        : TreeGrowthService.recordActivity(
+            updated,
+            TreeActivity.read,
+            DateTime.now(),
+          );
   });
 
   void updateReminder(
@@ -436,7 +463,18 @@ class UserStateController extends StateNotifier<UserStateSnapshot> {
     final currentLog = state.appState.prayer.log;
     final nextLog = PrayerTrackingService.togglePrayer(currentLog, today, key);
     if (identical(nextLog, currentLog)) return;
-    applyPatch((s) => s.copyWith(prayer: s.prayer.copyWith(log: nextLog)));
+    final nowDone = (nextLog[today] as Map?)?[key] == true;
+    applyPatch((s) {
+      final updated = s.copyWith(prayer: s.prayer.copyWith(log: nextLog));
+      // Legacy `markPrayer`: marking (not undoing) calls markActivity.
+      return nowDone
+          ? TreeGrowthService.recordActivity(
+              updated,
+              TreeActivity.prayer,
+              DateTime.now(),
+            )
+          : updated;
+    });
   }
 
   /// Saves a manually-entered prayer city/country and clears `timesDate` to
@@ -445,7 +483,17 @@ class UserStateController extends StateNotifier<UserStateSnapshot> {
   void setPrayerCity({required String city, required String country}) {
     applyPatch(
       (s) => s.copyWith(
-        prayer: s.prayer.copyWith(city: city, country: country, timesDate: ''),
+        prayer: s.prayer.copyWith(
+          city: city,
+          country: country,
+          timesDate: '',
+          // A city chosen by hand replaces earlier GPS coordinates, which
+          // would otherwise keep taking precedence on later days.
+          extra: Map<String, dynamic>.from(s.prayer.extra)
+            ..remove('lat')
+            ..remove('lng')
+            ..remove('tz'),
+        ),
       ),
     );
   }
@@ -473,6 +521,15 @@ class UserStateController extends StateNotifier<UserStateSnapshot> {
       if (lat != null) extra['lat'] = lat;
       if (lng != null) extra['lng'] = lng;
       if (tz != null) extra['tz'] = tz;
+      // Legacy `locatePrayer`: the first GPS fix also gives the qibla a
+      // location when none was chosen yet.
+      final qibla = lat != null && lng != null && s.qibla.lat == null
+          ? s.qibla.copyWith(
+              lat: lat,
+              lng: lng,
+              city: s.qibla.city.isEmpty ? 'موقعي الحالي' : s.qibla.city,
+            )
+          : s.qibla;
       return s.copyWith(
         prayer: s.prayer.copyWith(
           times: timesJson,
@@ -481,6 +538,7 @@ class UserStateController extends StateNotifier<UserStateSnapshot> {
           country: country ?? s.prayer.country,
           extra: extra,
         ),
+        qibla: qibla,
       );
     });
   }
@@ -496,8 +554,98 @@ class UserStateController extends StateNotifier<UserStateSnapshot> {
     final next = Map<String, dynamic>.from(s.adhkarCount);
     final current = next[key] is num ? (next[key] as num).toInt() : 0;
     next[key] = (current + 1).clamp(0, max);
-    return s.copyWith(adhkarCount: next);
+    return TreeGrowthService.recordActivity(
+      s.copyWith(adhkarCount: next),
+      TreeActivity.adhkar,
+      DateTime.now(),
+    );
   });
+
+  /// Legacy "إعادة التحدّي" (`openRestart`): clears all progress, points,
+  /// tree and achievements, and keeps the settings (theme, Quran font size,
+  /// reciter, reminders, name, prayer city without its log, qibla, language).
+  void restartChallenge() => applyPatch((s) {
+    final now = DateTime.now();
+    final extra = Map<String, dynamic>.from(s.extra)
+      ..remove('stats')
+      ..remove('activity')
+      ..remove('season')
+      ..['completedAt'] = <String, dynamic>{}
+      ..['tree'] = {
+        'shownStage': 0,
+        'stageDay': PrayerDayKey.dayKey(now),
+        'grownToday': 0,
+        'vitality': 1,
+        'lastActive': now.millisecondsSinceEpoch,
+        'createdAt': now.millisecondsSinceEpoch,
+      };
+    return UserAppState.defaults().copyWith(
+      palette: s.palette,
+      qscale: s.qscale,
+      reciter: s.reciter,
+      reminder: s.reminder,
+      prayer: s.prayer.copyWith(log: const {}, times: const {}, timesDate: ''),
+      qibla: s.qibla,
+      lang: s.lang,
+      guest: s.guest,
+      seen: true,
+      started: now.millisecondsSinceEpoch,
+      extra: extra,
+    );
+  });
+
+  /// Legacy `todayKey()` used by the intention map: `2026-10-12` style but
+  /// without zero padding (`2026-1-5`).
+  static String intentionKey(DateTime d) => '${d.year}-${d.month}-${d.day}';
+
+  /// Legacy "نيّتي اليوم": `S.intention[todayKey()] = text`.
+  void setIntentionToday(String text) => applyPatch((s) {
+    final next = Map<String, dynamic>.from(s.intention);
+    next[intentionKey(DateTime.now())] = text.trim();
+    return s.copyWith(intention: next);
+  });
+
+  /// Legacy "دفتر المشاعر": appends `{date: '١٢/١٠/٢٠٢٦', text}`.
+  void addJournalEntry(String text, String dateLabel) {
+    final body = text.trim();
+    if (body.isEmpty) return;
+    applyPatch(
+      (s) => s.copyWith(
+        journal: [
+          ...s.journal,
+          {'date': dateLabel, 'text': body},
+        ],
+      ),
+    );
+  }
+
+  /// Legacy adhkar "−" button: one down, never below 0, no activity.
+  void decrementAdhkar(String key) {
+    final v = state.appState.adhkarCount[key];
+    final current = v is num ? v.toInt() : 0;
+    if (current <= 0) return;
+    applyPatch((s) {
+      final next = Map<String, dynamic>.from(s.adhkarCount);
+      next[key] = current - 1;
+      return s.copyWith(adhkarCount: next);
+    });
+  }
+
+  /// Legacy `tbTap`: one more tasbih, recorded as today's activity.
+  void tapTasbeeh() => applyPatch(
+    (s) => TreeGrowthService.recordActivity(
+      s.copyWith(tasbeeh: s.tasbeeh.copyWith(count: s.tasbeeh.count + 1)),
+      TreeActivity.tasbih,
+      DateTime.now(),
+    ),
+  );
+
+  /// Legacy tasbih target buttons (0 = open count).
+  void setTasbeehTarget(int target) =>
+      updateTasbeeh((t) => t.copyWith(target: target));
+
+  /// Legacy "تصفير العدّاد".
+  void resetTasbeeh() => updateTasbeeh((t) => t.copyWith(count: 0));
 
   /// Sets or removes a single runtime/partial [UserAppState.extra] field
   /// (e.g. `tree`) without disturbing confirmed fields or other extras.

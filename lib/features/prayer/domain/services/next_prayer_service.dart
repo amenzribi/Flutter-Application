@@ -52,7 +52,7 @@ abstract final class NextPrayerService {
 
     final fajr = times[PrayerName.fajr];
     if (fajr == null || fajr.isEmpty) return null;
-    final tomorrow = now.add(const Duration(days: 1));
+    final tomorrow = DateTime(now.year, now.month, now.day + 1);
     final at = _atTimeOnDay(fajr, tomorrow);
     if (at == null) return null;
     return NextPrayerInfo(name: PrayerName.fajr, time: fajr, at: at);

@@ -5,15 +5,21 @@ import 'package:flutter/material.dart';
 import 'package:barakah40_flutter/app/theme/app_radii.dart';
 import 'package:barakah40_flutter/app/theme/app_spacing.dart';
 import 'package:barakah40_flutter/app/theme/barakah_colors.dart';
+import 'package:barakah40_flutter/features/prayer/domain/entities/prayer_name.dart';
 import 'package:barakah40_flutter/features/prayer/domain/services/next_prayer_service.dart';
 
 /// Next-prayer name/time with a live `HH:MM:SS` countdown, ticking every
 /// second while [info] is non-null (legacy `renderNextPrayer`'s
 /// `setInterval`). Renders nothing when there's no valid schedule for today.
 class NextPrayerCard extends StatefulWidget {
-  const NextPrayerCard({super.key, required this.info});
+  const NextPrayerCard({super.key, required this.info, this.times});
 
   final NextPrayerInfo? info;
+
+  /// Today's times. When given, the card moves on to the following prayer
+  /// by itself once the counted-down one arrives, instead of resting at
+  /// 00:00:00 until the screen is rebuilt.
+  final Map<PrayerName, String>? times;
 
   @override
   State<NextPrayerCard> createState() => _NextPrayerCardState();
@@ -61,7 +67,10 @@ class _NextPrayerCardState extends State<NextPrayerCard> {
 
   @override
   Widget build(BuildContext context) {
-    final info = widget.info;
+    final times = widget.times;
+    final info = times != null
+        ? NextPrayerService.nextPrayerInfo(times, _now)
+        : widget.info;
     if (info == null) return const SizedBox.shrink();
 
     final colors = context.barakahColors;

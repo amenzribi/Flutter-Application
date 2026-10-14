@@ -1,8 +1,20 @@
 rules_version = '2';
 
-// Auth-phase Firestore rules for barakah-40-a5dac.
-// Authenticated users may only read/write their own users/{uid}.
-// All other paths are denied.
+// Firestore rules for barakah-40-a5dac (Flutter client).
+//
+// - users/{uid}: private state, owner only.
+// - profiles / emailIndex: public profile + exact-email lookup for friend
+//   search. Emails are never listable.
+// - friendRequests / friendships: one request doc per direction
+//   ({from}_{to}), one friendship per pair ({lowUid}_{highUid}).
+// - conversations: one direct conversation per friendship (same pair id).
+// - challenges: legacy solo/duo/group challenges + group discussion.
+//
+// See docs/SOCIAL_DATA_MODEL.md. Deploy only after the emulator tests pass
+// and explicit approval:
+//   firebase deploy --only firestore:rules --project barakah-40-a5dac
+// No composite indexes are needed: every query is single-field or
+// equality-only (see docs/SOCIAL_DATA_MODEL.md).
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -11,12 +23,485 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function me() {
+      return request.auth.uid;
+    }
+
     function isMe(uid) {
       return signedIn() && request.auth.uid == uid;
     }
 
+    function pairId(a, b) {
+      return a < b ? a + '_' + b : b + '_' + a;
+    }
+
+    function docPath(collection, id) {
+      return /databases/$(database)/documents/$(collection)/$(id);
+    }
+
+    function areFriends(a, b) {
+      return exists(docPath('friendships', pairId(a, b)));
+    }
+
+    function validName(n) {
+      return n is string && n.size() > 0 && n.size() <= 60;
+    }
+
+    function validText(t) {
+      return t is string && t.trim().size() > 0 && t.size() <= 2000;
+    }
+
+    function onlyChanged(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+    }
+
+    // =========================
+    // Private user state
+    // =========================
     match /users/{userId} {
       allow read, write: if isMe(userId);
+    }
+
+    // =========================
+    // Public profile (search results, friend lists)
+    // =========================
+    match /profiles/{uid} {
+      allow get: if signedIn();
+      // Prefix search only, small pages: nobody can dump the directory.
+      allow list: if signedIn() && request.query.limit <= 20;
+
+      allow create, update: if isMe(uid)
+        && request.resource.data.keys().hasOnly([
+          'uid', 'name', 'nameKey', 'username', 'createdAt', 'updatedAt',
+          'treeStage', 'treeHealthy'
+        ])
+        && request.resource.data.uid == uid
+        && validName(request.resource.data.name)
+        // Folded search key (lower case, Arabic letter variants unified).
+        && request.resource.data.nameKey is string
+        && request.resource.data.nameKey.size() <= 60
+        && request.resource.data.username is string
+        && request.resource.data.username.matches('^[a-z0-9._-]{1,40}$');
+
+      allow delete: if isMe(uid);
+    }
+
+    // =========================
+    // Exact email lookup: get by key only, never list. Only the owner of the
+    // signed-in email can claim its key.
+    // =========================
+    match /emailIndex/{emailKey} {
+      allow get: if signedIn();
+      allow list: if false;
+
+      allow create, update: if signedIn()
+        && request.auth.token.email is string
+        && emailKey == request.auth.token.email.lower()
+        && request.resource.data.keys().hasOnly(['uid'])
+        && request.resource.data.uid == me();
+
+      allow delete: if signedIn() && resource.data.uid == me();
+    }
+
+    // =========================
+    // Friend requests: {from}_{to}
+    // status: pending | accepted | declined | cancelled
+    // =========================
+    match /friendRequests/{requestId} {
+      function req() {
+        return request.resource.data;
+      }
+
+      function reversePending(from, to) {
+        return exists(docPath('friendRequests', to + '_' + from))
+          && get(docPath('friendRequests', to + '_' + from)).data.status == 'pending';
+      }
+
+      // A missing doc reveals nothing; lets clients check before writing.
+      allow get: if signedIn()
+        && (resource == null || resource.data.from == me() || resource.data.to == me());
+      allow list: if signedIn()
+        && (resource.data.from == me() || resource.data.to == me());
+
+      allow create: if signedIn()
+        && req().keys().hasOnly(['from', 'to', 'fromName', 'toName', 'status', 'createdAt', 'updatedAt'])
+        && req().from == me()
+        && req().to is string
+        && req().to != me()
+        && requestId == me() + '_' + req().to
+        && req().status == 'pending'
+        && validName(req().fromName)
+        && req().toName is string
+        && req().createdAt == request.time
+        && req().updatedAt == request.time
+        && exists(docPath('profiles', req().to))
+        && !areFriends(me(), req().to)
+        && !reversePending(me(), req().to);
+
+      allow update: if signedIn()
+        && onlyChanged(['status', 'updatedAt', 'fromName', 'toName'])
+        && req().from == resource.data.from
+        && req().to == resource.data.to
+        && req().updatedAt == request.time
+        && (
+          // Sender re-sends a closed request.
+          (
+            resource.data.from == me()
+            && resource.data.status in ['declined', 'cancelled', 'accepted']
+            && req().status == 'pending'
+            && !areFriends(me(), resource.data.to)
+            && !reversePending(me(), resource.data.to)
+          )
+          ||
+          // Sender cancels a pending request.
+          (
+            resource.data.from == me()
+            && resource.data.status == 'pending'
+            && req().status == 'cancelled'
+          )
+          ||
+          // Recipient declines.
+          (
+            resource.data.to == me()
+            && resource.data.status == 'pending'
+            && req().status == 'declined'
+          )
+          ||
+          // Recipient accepts: the friendship must exist once this batch commits.
+          (
+            resource.data.to == me()
+            && resource.data.status == 'pending'
+            && req().status == 'accepted'
+            && existsAfter(docPath('friendships', pairId(resource.data.from, me())))
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    // =========================
+    // Friendships: {lowUid}_{highUid}
+    // =========================
+    match /friendships/{pair} {
+      allow get: if signedIn() && (resource == null || me() in resource.data.users);
+      allow list: if signedIn() && me() in resource.data.users;
+
+      // Created only by the recipient of a pending request, in the same
+      // batch that marks that request accepted.
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['users', 'names', 'since'])
+        && request.resource.data.users is list
+        && request.resource.data.users.size() == 2
+        && request.resource.data.users[0] < request.resource.data.users[1]
+        && pair == request.resource.data.users[0] + '_' + request.resource.data.users[1]
+        && me() in request.resource.data.users
+        && request.resource.data.since == request.time
+        && request.resource.data.names is map
+        && (
+          (
+            request.resource.data.users[0] != me()
+            && get(docPath('friendRequests', request.resource.data.users[0] + '_' + me())).data.status == 'pending'
+            && getAfter(docPath('friendRequests', request.resource.data.users[0] + '_' + me())).data.status == 'accepted'
+          )
+          ||
+          (
+            request.resource.data.users[1] != me()
+            && get(docPath('friendRequests', request.resource.data.users[1] + '_' + me())).data.status == 'pending'
+            && getAfter(docPath('friendRequests', request.resource.data.users[1] + '_' + me())).data.status == 'accepted'
+          )
+        );
+
+      allow update: if false;
+
+      // Either friend can end the friendship.
+      allow delete: if signedIn() && me() in resource.data.users;
+    }
+
+    // =========================
+    // Direct conversations: same id as the friendship
+    // =========================
+    match /conversations/{cid} {
+      function conv() {
+        return get(docPath('conversations', cid)).data;
+      }
+
+      // Conversations from the original web app list their people in
+      // `users` instead of `members` until the app upgrades them.
+      function membersOf(d) {
+        return d.get('members', d.get('users', []));
+      }
+
+      allow get: if signedIn() && (resource == null || me() in membersOf(resource.data));
+      allow list: if signedIn() && me() in resource.data.members;
+
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+          'type', 'members', 'names', 'createdAt', 'updatedAt', 'lastMessage', 'unread'
+        ])
+        && request.resource.data.type == 'direct'
+        && request.resource.data.members is list
+        && request.resource.data.members.size() == 2
+        && request.resource.data.members[0] < request.resource.data.members[1]
+        && cid == request.resource.data.members[0] + '_' + request.resource.data.members[1]
+        && me() in request.resource.data.members
+        && exists(docPath('friendships', cid));
+
+      allow update: if signedIn()
+        && (
+          (
+            'members' in resource.data
+            && me() in resource.data.members
+            && onlyChanged(['lastMessage', 'updatedAt', 'unread', 'names'])
+          )
+          ||
+          // Upgrade of a web-app conversation: same two people, now in
+          // `members`, between friends.
+          (
+            !('members' in resource.data)
+            && me() in resource.data.users
+            && request.resource.data.type == 'direct'
+            && request.resource.data.members is list
+            && request.resource.data.members.size() == 2
+            && request.resource.data.members[0] < request.resource.data.members[1]
+            && cid == request.resource.data.members[0] + '_' + request.resource.data.members[1]
+            && request.resource.data.members.toSet() == resource.data.users.toSet()
+            && exists(docPath('friendships', cid))
+            && onlyChanged(['type', 'members', 'names', 'lastMessage', 'updatedAt', 'unread'])
+          )
+        );
+
+      allow delete: if false;
+
+      match /messages/{mid} {
+        allow read: if signedIn() && me() in membersOf(conv());
+
+        allow create: if signedIn()
+          && me() in conv().members
+          && exists(docPath('friendships', cid))
+          && request.resource.data.keys().hasOnly(['senderId', 'senderName', 'text', 'createdAt'])
+          && request.resource.data.senderId == me()
+          && request.resource.data.senderName is string
+          && validText(request.resource.data.text)
+          && request.resource.data.createdAt == request.time;
+
+        allow update, delete: if false;
+      }
+    }
+
+    // =========================
+    // Challenges (solo / duo / group) + group discussion
+    // =========================
+    match /challenges/{cid} {
+      function chal() {
+        return get(docPath('challenges', cid)).data;
+      }
+
+      function isMember() {
+        return signedIn() && me() in chal().members;
+      }
+
+      // Pending invitations and refusals. Absent on challenges created before
+      // invitations existed, hence get() with a default.
+      function invitedOf(d) {
+        return d.get('invited', []);
+      }
+
+      function declinedOf(d) {
+        return d.get('declined', []);
+      }
+
+      function newData() {
+        return request.resource.data;
+      }
+
+      function added() {
+        return newData().members.toSet().difference(resource.data.members.toSet());
+      }
+
+      function removed() {
+        return resource.data.members.toSet().difference(newData().members.toSet());
+      }
+
+      function sameMembers() {
+        return newData().members == resource.data.members;
+      }
+
+      function sameInvited() {
+        return invitedOf(newData()) == invitedOf(resource.data);
+      }
+
+      function sameDeclined() {
+        return declinedOf(newData()) == declinedOf(resource.data);
+      }
+
+      // Members and invited friends see the challenge; only members see its
+      // progress and discussion.
+      allow read: if signedIn()
+        && (me() in resource.data.members || me() in invitedOf(resource.data));
+
+      // A challenge starts with its creator as the only member. A duo names
+      // one friend as a pending invitation; she joins when she accepts.
+      allow create: if signedIn()
+        && newData().keys().hasOnly([
+          'type', 'name', 'ownerUid', 'members', 'names', 'createdAt', 'updatedAt',
+          'goalDays', 'lastMessage', 'invited', 'declined'
+        ])
+        && newData().type in ['solo', 'duo', 'group']
+        && validName(newData().name)
+        && newData().ownerUid == me()
+        && newData().goalDays == 40
+        && newData().members == [me()]
+        && newData().createdAt == request.time
+        && declinedOf(newData()) == []
+        && (
+          invitedOf(newData()) == []
+          ||
+          (
+            newData().type == 'duo'
+            && invitedOf(newData()).size() == 1
+            && areFriends(me(), invitedOf(newData())[0])
+          )
+        );
+
+      allow update: if signedIn()
+        && newData().ownerUid == resource.data.ownerUid
+        && newData().type == resource.data.type
+        && newData().goalDays == resource.data.goalDays
+        && newData().createdAt == resource.data.createdAt
+        && newData().members is list
+        && invitedOf(newData()) is list
+        && declinedOf(newData()) is list
+        && newData().members.size() + invitedOf(newData()).size() <= 30
+        && (
+          // ---- Member actions ----
+          (
+            me() in resource.data.members
+            && (
+              // Activity / naming without membership changes.
+              (
+                sameMembers() && sameInvited() && sameDeclined()
+                && onlyChanged(['lastMessage', 'updatedAt', 'names'])
+              )
+              ||
+              // Owner renames.
+              (
+                sameMembers() && sameInvited() && sameDeclined()
+                && resource.data.ownerUid == me()
+                && onlyChanged(['name', 'updatedAt'])
+                && validName(newData().name)
+              )
+              ||
+              // Invite one of my own friends. arrayUnion appends, so the new
+              // invitee is the last element. A duo holds two people at most.
+              (
+                sameMembers()
+                && resource.data.type in ['group', 'duo']
+                && invitedOf(newData()).size() == invitedOf(resource.data).size() + 1
+                && invitedOf(newData()).toSet().difference(invitedOf(resource.data).toSet())
+                     == [invitedOf(newData())[invitedOf(newData()).size() - 1]].toSet()
+                && !(invitedOf(newData())[invitedOf(newData()).size() - 1] in resource.data.members)
+                && areFriends(me(), invitedOf(newData())[invitedOf(newData()).size() - 1])
+                && (resource.data.type == 'group'
+                    || newData().members.size() + invitedOf(newData()).size() <= 2)
+                // Re-inviting someone who declined clears the refusal.
+                && declinedOf(newData()).toSet()
+                     == declinedOf(resource.data).toSet().difference(
+                          [invitedOf(newData())[invitedOf(newData()).size() - 1]].toSet())
+                && onlyChanged(['invited', 'declined', 'names', 'updatedAt'])
+              )
+              ||
+              // Cancel one pending invitation.
+              (
+                sameMembers() && sameDeclined()
+                && invitedOf(newData()).size() == invitedOf(resource.data).size() - 1
+                && invitedOf(resource.data).toSet().difference(invitedOf(newData()).toSet()).size() == 1
+                && onlyChanged(['invited', 'updatedAt'])
+              )
+              ||
+              // A non-owner member leaves.
+              (
+                resource.data.ownerUid != me()
+                && sameInvited() && sameDeclined()
+                && added().size() == 0
+                && removed() == [me()].toSet()
+                && onlyChanged(['members', 'names', 'updatedAt'])
+              )
+              ||
+              // The owner removes another member.
+              (
+                resource.data.ownerUid == me()
+                && sameInvited() && sameDeclined()
+                && added().size() == 0
+                && removed().size() == 1
+                && !(me() in removed())
+                && onlyChanged(['members', 'names', 'updatedAt'])
+              )
+            )
+          )
+          ||
+          // ---- Invitee actions ----
+          (
+            me() in invitedOf(resource.data)
+            && invitedOf(newData()).toSet() == invitedOf(resource.data).toSet().difference([me()].toSet())
+            && invitedOf(newData()).size() == invitedOf(resource.data).size() - 1
+            && (
+              // Accept: join the members.
+              (
+                removed().size() == 0
+                && added() == [me()].toSet()
+                && newData().members.size() == resource.data.members.size() + 1
+                && sameDeclined()
+                && onlyChanged(['members', 'invited', 'names', 'updatedAt'])
+              )
+              ||
+              // Decline: recorded so the inviter sees the answer.
+              (
+                sameMembers()
+                && declinedOf(newData()).toSet() == declinedOf(resource.data).toSet().union([me()].toSet())
+                && onlyChanged(['invited', 'declined', 'updatedAt'])
+              )
+            )
+          )
+        );
+
+      allow delete: if signedIn() && resource.data.ownerUid == me();
+
+      match /progress/{uid} {
+        allow read: if isMember();
+        // A mirror of the member's own 40-day grid: bounded, so a member
+        // cannot claim more days than the challenge has.
+        allow create, update: if isMember()
+          && uid == me()
+          && request.resource.data.keys().hasOnly(['uid', 'name', 'days', 'percent', 'cells', 'at'])
+          && request.resource.data.uid == me()
+          && request.resource.data.name is string
+          && request.resource.data.name.size() <= 60
+          && request.resource.data.days is int
+          && request.resource.data.days >= 0
+          && request.resource.data.days <= chal().goalDays
+          && request.resource.data.percent is int
+          && request.resource.data.percent >= 0
+          && request.resource.data.percent <= 100
+          && request.resource.data.cells is list
+          && request.resource.data.cells.size() <= chal().goalDays
+          && request.resource.data.at is int;
+        allow delete: if signedIn()
+          && (uid == me() || chal().ownerUid == me());
+      }
+
+      match /messages/{mid} {
+        allow read: if isMember();
+        allow create: if isMember()
+          && request.resource.data.keys().hasOnly(['senderId', 'senderName', 'text', 'createdAt'])
+          && request.resource.data.senderId == me()
+          && request.resource.data.senderName is string
+          && validText(request.resource.data.text)
+          && request.resource.data.createdAt == request.time;
+        allow update: if false;
+        // The owner may delete messages; the app does so only to clear the
+        // discussion when the owner deletes the whole challenge.
+        allow delete: if signedIn() && chal().ownerUid == me();
+      }
     }
 
     match /{document=**} {

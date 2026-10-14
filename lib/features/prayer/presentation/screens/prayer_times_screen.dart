@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import 'package:barakah40_flutter/core/constants/app_assets.dart';
 import 'package:barakah40_flutter/app/router/app_routes.dart';
 import 'package:barakah40_flutter/app/theme/app_spacing.dart';
 import 'package:barakah40_flutter/app/theme/barakah_colors.dart';
@@ -65,7 +66,10 @@ class PrayerTimesScreen extends ConsumerWidget {
     final hijriLabel = HijriDate.fromGregorian(now).formatAr();
 
     return PremiumScaffold(
+      style: PremiumScaffoldStyle.photo,
+      backgroundImage: AppAssets.pagePrayer,
       appBar: AppBar(
+        foregroundColor: Colors.white,
         leading: PremiumIconButton(
           icon: Icons.arrow_back,
           tooltip: 'رجوع',
@@ -236,7 +240,7 @@ class _ScheduleBody extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (nextInfo != null) ...[
-              NextPrayerCard(info: nextInfo),
+              NextPrayerCard(info: nextInfo, times: schedule.times),
               const SizedBox(height: AppSpacing.md),
             ],
             PremiumCard(

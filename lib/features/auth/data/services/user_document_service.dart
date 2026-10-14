@@ -36,6 +36,13 @@ class UserDocumentService {
     }, SetOptions(merge: true));
     AppLogger.info('Created users/$uid identity document');
   }
+
+  /// Legacy `editName`: `users/{uid}.name` with merge.
+  Future<void> updateName({required String uid, required String name}) =>
+      _users.doc(uid).set({'name': name}, SetOptions(merge: true));
+
+  /// Legacy `deleteAccount`: removes the private state document.
+  Future<void> deleteUserDocument(String uid) => _users.doc(uid).delete();
 }
 
 AppUser mapFirebaseUser(User user) {
@@ -44,5 +51,6 @@ AppUser mapFirebaseUser(User user) {
     email: user.email,
     displayName: user.displayName,
     emailVerified: user.emailVerified,
+    isPasswordUser: user.providerData.any((p) => p.providerId == 'password'),
   );
 }

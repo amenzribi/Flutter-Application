@@ -23,18 +23,25 @@ dependencies:
   intl: ^0.20.2
   shared_preferences: ^2.5.5
   http: ^1.6.0
+  web: ^1.1.1
   just_audio: ^0.10.6
   geolocator: ^14.0.3
+  flutter_compass: ^0.8.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  fake_cloud_firestore: ^4.3.0
 
 flutter:
   uses-material-design: true
   assets:
     - assets/images/p_login.webp
     - assets/images/app_icon_192.png
+    - assets/images/bg/
+    - assets/images/pg/
+    - assets/images/tree/
+    - assets/data/
   fonts:
     - family: Tajawal
       fonts:

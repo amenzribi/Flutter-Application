@@ -12,7 +12,20 @@
           "package_name": "com.nosa.barakah40"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "777586757700-1o1397d6vhgol8jjgjn7urp0qea302df.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.nosa.barakah40",
+            "certificate_hash": "cb34167664f7238106c0778ce0150962c1bcf235"
+          }
+        },
+        {
+          "client_id": "777586757700-3b64knt9tdsgil7nd1bdq7un50t7tre0.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyA0coHvV6uXulRF7I9LEPWjN5yNJTS4KWA"
@@ -20,7 +33,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "777586757700-3b64knt9tdsgil7nd1bdq7un50t7tre0.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "777586757700-cabmekntpv84iupf3p19k70p61don8nk.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.nosa.barakah40"
+              }
+            }
+          ]
         }
       }
     }

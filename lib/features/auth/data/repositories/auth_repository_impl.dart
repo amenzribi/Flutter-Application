@@ -13,16 +13,24 @@ class AuthRepositoryImpl implements AuthRepository {
     GoogleSignIn? googleSignIn,
     UserDocumentService? userDocumentService,
   }) : _auth = firebaseAuth ?? FirebaseAuth.instance,
-       _googleSignIn = googleSignIn ?? GoogleSignIn(scopes: const ['email']),
+       _injectedGoogleSignIn = googleSignIn,
        _userDocs = userDocumentService ?? UserDocumentService();
 
   final FirebaseAuth _auth;
-  final GoogleSignIn _googleSignIn;
+  final GoogleSignIn? _injectedGoogleSignIn;
+
+  // Created on first native use only. On web, sign-in goes through the
+  // Firebase popup, and constructing the plugin without a web client id
+  // throws an uncaught error at startup.
+  late final GoogleSignIn _googleSignIn =
+      _injectedGoogleSignIn ?? GoogleSignIn(scopes: const ['email']);
   final UserDocumentService _userDocs;
 
   @override
   Stream<AppUser?> authStateChanges() {
-    return _auth.authStateChanges().map(
+    // userChanges (not authStateChanges) so the display name set right after
+    // registration reaches the UI and the social profile.
+    return _auth.userChanges().map(
       (user) => user == null ? null : mapFirebaseUser(user),
     );
   }
@@ -64,6 +72,18 @@ class AuthRepositoryImpl implements AuthRepository {
       name: trimmedName,
       email: trimmedEmail,
     );
+
+    // Progress syncs to the cloud once the email is confirmed (legacy rule);
+    // the home screen offers to resend this link.
+    try {
+      await user.sendEmailVerification();
+    } catch (error, stackTrace) {
+      AppLogger.error(
+        'sendEmailVerification after register',
+        error,
+        stackTrace,
+      );
+    }
 
     return mapFirebaseUser(user);
   }
@@ -139,10 +159,89 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
+  Future<void> sendEmailVerification() async {
+    final user = _auth.currentUser;
+    if (user == null || user.emailVerified) return;
+    await user.sendEmailVerification();
+  }
+
+  @override
+  Future<AppUser?> reloadUser() async {
+    final user = _auth.currentUser;
+    if (user == null) return null;
+    await user.reload();
+    // reload() alone does not refresh the ID token's email_verified claim.
+    await _auth.currentUser?.getIdToken(true);
+    final fresh = _auth.currentUser;
+    return fresh == null ? null : mapFirebaseUser(fresh);
+  }
+
+  User _requireUser() {
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw FirebaseAuthException(code: 'user-not-found');
+    }
+    return user;
+  }
+
+  @override
+  Future<void> updateDisplayName(String name) async {
+    final user = _requireUser();
+    final trimmed = name.trim();
+    await user.updateDisplayName(trimmed);
+    await _userDocs.updateName(uid: user.uid, name: trimmed);
+    await user.reload();
+  }
+
+  @override
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    await reauthenticate(password: currentPassword);
+    await _requireUser().updatePassword(newPassword);
+  }
+
+  @override
+  Future<void> reauthenticate({String? password}) async {
+    final user = _requireUser();
+    final isPassword = user.providerData.any((p) => p.providerId == 'password');
+    if (isPassword) {
+      await user.reauthenticateWithCredential(
+        EmailAuthProvider.credential(
+          email: user.email ?? '',
+          password: password ?? '',
+        ),
+      );
+    } else if (kIsWeb) {
+      await user.reauthenticateWithPopup(GoogleAuthProvider());
+    } else {
+      final googleUser = await _googleSignIn.signIn();
+      if (googleUser == null) {
+        throw FirebaseAuthException(code: 'popup-closed-by-user');
+      }
+      final googleAuth = await googleUser.authentication;
+      await user.reauthenticateWithCredential(
+        GoogleAuthProvider.credential(
+          accessToken: googleAuth.accessToken,
+          idToken: googleAuth.idToken,
+        ),
+      );
+    }
+  }
+
+  @override
+  Future<void> deleteAccount() async {
+    final user = _requireUser();
+    await _userDocs.deleteUserDocument(user.uid);
+    await user.delete();
+  }
+
+  @override
   Future<void> logout() async {
     AppLogger.info('Signing out');
     try {
-      await _googleSignIn.signOut();
+      if (!kIsWeb) await _googleSignIn.signOut();
     } catch (error, stackTrace) {
       AppLogger.error('Google signOut cleanup failed', error, stackTrace);
     }

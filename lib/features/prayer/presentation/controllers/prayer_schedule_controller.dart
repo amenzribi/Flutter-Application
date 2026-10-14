@@ -111,6 +111,18 @@ class PrayerScheduleController extends StateNotifier<PrayerScheduleState> {
       return;
     }
 
+    // Located by GPS before: fetch for the same coordinates. The city saved
+    // then is only the time-zone name (e.g. "Cairo" for all of Egypt), so
+    // fetching by that name would give another town's times. Choosing a
+    // city by hand clears the coordinates (UserStateController.setPrayerCity).
+    final lat = settings.extra['lat'];
+    final lng = settings.extra['lng'];
+    if (lat is num && lng is num) {
+      state = PrayerScheduleState.loading(schedule: state.schedule);
+      await _fetchByCoordinates(lat.toDouble(), lng.toDouble());
+      return;
+    }
+
     if (settings.city.trim().isNotEmpty) {
       await _fetchByCity(settings.city, settings.country, silent: true);
       return;

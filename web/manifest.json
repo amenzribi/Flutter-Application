@@ -1,11 +1,11 @@
 {
-    "name": "barakah40_flutter",
-    "short_name": "barakah40_flutter",
+    "name": "بركة 40",
+    "short_name": "بركة 40",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#1B1F17",
+    "theme_color": "#2A3024",
+    "description": "بركة 40: صلاة، قراءة وتحدّيات مع الصديقات",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
@@ -31,5 +31,7 @@
             "type": "image/png",
             "purpose": "maskable"
         }
-    ]
+    ],
+    "lang": "ar",
+    "dir": "rtl"
 }

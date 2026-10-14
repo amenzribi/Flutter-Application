@@ -50,3 +50,4 @@ firebase-debug.log
 firestore-debug.log
 
 test-accounts.local.txt
+dist/
